@@ -6,8 +6,8 @@ import com.gs.ep.docknight.model.Document;
 import com.gs.ep.docknight.model.Element;
 import com.gs.ep.docknight.model.ElementVisitor;
 import com.gs.ep.docknight.model.Length;
-import com.gs.ep.docknight.model.TabularCellElementGroup; // Corrected
-import com.gs.ep.docknight.model.TabularElementGroup;   // Corrected
+import com.gs.ep.docknight.model.TabularCellElementGroup;
+import com.gs.ep.docknight.model.TabularElementGroup;
 import com.gs.ep.docknight.model.attribute.BackGroundColor;
 import com.gs.ep.docknight.model.attribute.BorderColor;
 import com.gs.ep.docknight.model.attribute.BorderStyle;
@@ -18,7 +18,7 @@ import com.gs.ep.docknight.model.attribute.Height;
 import com.gs.ep.docknight.model.attribute.ImageData;
 import com.gs.ep.docknight.model.attribute.Left;
 import com.gs.ep.docknight.model.attribute.PageColor;
-import com.gs.ep.docknight.model.attribute.PageMargin; // Corrected
+import com.gs.ep.docknight.model.attribute.PageMargin;
 import com.gs.ep.docknight.model.attribute.PageSize;
 import com.gs.ep.docknight.model.attribute.PositionalContent;
 import com.gs.ep.docknight.model.attribute.Text;
@@ -27,18 +27,13 @@ import com.gs.ep.docknight.model.attribute.Top;
 import com.gs.ep.docknight.model.attribute.Url;
 import com.gs.ep.docknight.model.attribute.Width;
 import com.gs.ep.docknight.model.element.ElementGroup;
-// import com.gs.ep.docknight.model.element.Group; // Removing incorrect Group import
+// import com.gs.ep.docknight.model.element.Group; // Removed
 import com.gs.ep.docknight.model.element.HorizontalLine;
 import com.gs.ep.docknight.model.element.Image;
 import com.gs.ep.docknight.model.element.Page;
 import com.gs.ep.docknight.model.element.Rectangle;
 import com.gs.ep.docknight.model.element.TextElement;
 import com.gs.ep.docknight.model.element.VerticalLine;
-// Removed: import com.gs.ep.docknight.model.attribute.Right;
-// Removed: import com.gs.ep.docknight.model.element.Table;
-// Removed: import com.gs.ep.docknight.model.element.TableCell;
-// Removed: import com.gs.ep.docknight.model.element.TableRow;
-// Removed: import com.gs.ep.docknight.model.style.BorderStyle.Style; (enum that doesn't exist)
 
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
@@ -81,16 +76,14 @@ public class PdfRenderer implements Renderer<byte[]>, ElementVisitor<PDPageConte
     private float rectX, rectY, rectWidth, rectHeight;
     private java.awt.Color rectBgColor;
     private java.awt.Color rectBorderColor;
-    private String rectBorderStyleVal; // Changed to String
+    private String rectBorderStyleVal;
     private float rectBorderWidth;
-
-    // Line state variables removed as attributes are fetched directly in element handlers
 
     private float currentTableX, currentTableY;
     private float currentCellX, currentCellY, currentCellWidth, currentCellHeight;
     private java.awt.Color currentCellBgColor;
     private java.awt.Color currentCellBorderColor;
-    private String currentCellBorderStyleVal; // Changed to String
+    private String currentCellBorderStyleVal;
     private float currentCellBorderWidth;
 
     private Map<String, PDFont> loadedFonts = new HashMap<>();
@@ -119,7 +112,6 @@ public class PdfRenderer implements Renderer<byte[]>, ElementVisitor<PDPageConte
         this.imageHeight = 0;
         this.currentImageObject = null;
         resetRectState();
-        // resetLineState(); // Removed
         resetTableState();
         resetCellState();
     }
@@ -147,11 +139,9 @@ public class PdfRenderer implements Renderer<byte[]>, ElementVisitor<PDPageConte
         this.rectHeight = 0;
         this.rectBgColor = null;
         this.rectBorderColor = null;
-        this.rectBorderStyleVal = com.gs.ep.docknight.model.attribute.BorderStyle.SOLID; // Default to solid string
+        this.rectBorderStyleVal = com.gs.ep.docknight.model.attribute.BorderStyle.SOLID;
         this.rectBorderWidth = 1f;
     }
-
-    // resetLineState() removed
 
     private void resetTableState() {
         this.currentTableX = 0;
@@ -165,7 +155,7 @@ public class PdfRenderer implements Renderer<byte[]>, ElementVisitor<PDPageConte
         this.currentCellHeight = 0;
         this.currentCellBgColor = null;
         this.currentCellBorderColor = null;
-        this.currentCellBorderStyleVal = com.gs.ep.docknight.model.attribute.BorderStyle.SOLID; // Default to solid string
+        this.currentCellBorderStyleVal = com.gs.ep.docknight.model.attribute.BorderStyle.SOLID;
         this.currentCellBorderWidth = 1f;
     }
 
@@ -173,7 +163,8 @@ public class PdfRenderer implements Renderer<byte[]>, ElementVisitor<PDPageConte
     public byte[] render(Document document) throws Exception {
         this.pdDocument = new PDDocument();
         try {
-            document.accept(this, null);
+            // Changed from document.accept(this, null) to direct call
+            this.handleElement(document, null);
             ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
             this.pdDocument.save(byteArrayOutputStream);
             return byteArrayOutputStream.toByteArray();
@@ -194,11 +185,44 @@ public class PdfRenderer implements Renderer<byte[]>, ElementVisitor<PDPageConte
         return PDPageContentStream.class;
     }
 
+    private PDPageContentStream dispatchAndHandleElement(Element element, PDPageContentStream stream) throws Exception {
+        if (element == null) {
+            LOGGER.warn("dispatchAndHandleElement called with null element.");
+            return stream;
+        }
+        if (element instanceof Document) { // Should ideally not happen via this dispatch
+            return this.handleElement((Document) element, stream);
+        } else if (element instanceof Page) { // Should ideally not happen via this dispatch
+            return this.handleElement((Page) element, stream);
+        } else if (element instanceof TextElement) {
+            return this.handleElement((TextElement) element, stream);
+        } else if (element instanceof Image) {
+            return this.handleElement((Image) element, stream);
+        } else if (element instanceof HorizontalLine) {
+            return this.handleElement((HorizontalLine) element, stream);
+        } else if (element instanceof VerticalLine) {
+            return this.handleElement((VerticalLine) element, stream);
+        } else if (element instanceof Rectangle) {
+            return this.handleElement((Rectangle) element, stream);
+        } else if (element instanceof TabularElementGroup) {
+            return this.handleElement((TabularElementGroup) element, stream);
+        } else if (element instanceof TabularCellElementGroup) {
+            return this.handleElement((TabularCellElementGroup) element, stream);
+        } else if (element instanceof ElementGroup) {
+            return this.handleElement((ElementGroup<?>) element, stream);
+        } else {
+            LOGGER.warn("dispatchAndHandleElement: Unknown/unhandled element type: {}", element.getClass().getName());
+            return stream;
+        }
+    }
+
+
     @Override
     public PDPageContentStream handleElement(Document document, PDPageContentStream parentStream) throws Exception {
         LOGGER.info("Handling Document element.");
         for (Element element : document.getContent().getElements()) {
-            element.accept(this, null);
+            // Changed from element.accept(this, null)
+            this.dispatchAndHandleElement(element, null);
         }
         return parentStream;
     }
@@ -244,19 +268,20 @@ public class PdfRenderer implements Renderer<byte[]>, ElementVisitor<PDPageConte
 
             for (Attribute attribute : page.getAttributes()) {
                 if (!(attribute instanceof PageSize) && !(attribute instanceof PageColor)) {
-                    attribute.accept(this, this.currentContentStream);
+                    // Changed from attribute.accept(this, this.currentContentStream)
+                    this.handleAttribute(attribute, this.currentContentStream);
                 }
             }
 
             PositionalContent positionalContent = page.getAttribute(PositionalContent.class);
             if (positionalContent != null && positionalContent.getValue() != null) {
-                 positionalContent.getValue().getElements().forEach(element -> {
-                    try { element.accept(this, this.currentContentStream); } catch (Exception e) { LOGGER.error("Error processing element in page", e); }
-                });
+                 for(Element element : positionalContent.getValue().getElements()){
+                    try { this.dispatchAndHandleElement(element, this.currentContentStream); } catch (Exception e) { LOGGER.error("Error processing element in page", e); }
+                 }
             } else if (page.getContent() != null && page.getContent().getValue() != null) {
-                 page.getContent().getValue().getElements().forEach(element -> {
-                    try { element.accept(this, this.currentContentStream); } catch (Exception e) { LOGGER.error("Error processing element in page (fallback)", e); }
-                });
+                 for(Element element : page.getContent().getValue().getElements()){
+                    try { this.dispatchAndHandleElement(element, this.currentContentStream); } catch (Exception e) { LOGGER.error("Error processing element in page (fallback)", e); }
+                 }
             }
             this.currentContentStream.close();
         } catch (Exception e) {
@@ -268,9 +293,9 @@ public class PdfRenderer implements Renderer<byte[]>, ElementVisitor<PDPageConte
 
     @Override
     public PDPageContentStream handleElement(ElementGroup<?> elementGroup, PDPageContentStream stream) throws Exception {
-        LOGGER.info("Handling ElementGroup element."); // Corrected log message
+        LOGGER.info("Handling ElementGroup element.");
         for (Element element : elementGroup.getElements()) {
-            element.accept(this, stream);
+             this.dispatchAndHandleElement(element, stream);
         }
         return stream;
     }
@@ -306,7 +331,8 @@ public class PdfRenderer implements Renderer<byte[]>, ElementVisitor<PDPageConte
         LOGGER.info("Handling Image element.");
         resetImageState();
         for (Attribute attribute : image.getAttributes()) {
-            attribute.accept(this, stream);
+            // Changed from attribute.accept(this, stream)
+            this.handleAttribute(attribute, stream);
         }
         if (this.currentImageObject != null) {
             try {
@@ -326,7 +352,8 @@ public class PdfRenderer implements Renderer<byte[]>, ElementVisitor<PDPageConte
         LOGGER.info("Handling Rectangle element.");
         resetRectState();
         for (Attribute attribute : rectangle.getAttributes()) {
-            attribute.accept(this, stream);
+            // Changed from attribute.accept(this, stream)
+            this.handleAttribute(attribute, stream);
         }
         float x = this.rectX;
         float y = this.currentPageHeight - this.rectY - this.rectHeight;
@@ -336,7 +363,7 @@ public class PdfRenderer implements Renderer<byte[]>, ElementVisitor<PDPageConte
             stream.fill();
         }
         if (this.rectBorderColor != null && this.rectBorderWidth > 0 &&
-            this.rectBorderStyleVal != null && !com.gs.ep.docknight.model.attribute.BorderStyle.NONE.equalsIgnoreCase(this.rectBorderStyleVal)) { // "none" is a valid style string
+            this.rectBorderStyleVal != null && !com.gs.ep.docknight.model.attribute.BorderStyle.NONE.equalsIgnoreCase(this.rectBorderStyleVal))) {
             stream.setStrokingColor(this.rectBorderColor);
             stream.setLineWidth(this.rectBorderWidth);
             if (com.gs.ep.docknight.model.attribute.BorderStyle.DASHED.equalsIgnoreCase(this.rectBorderStyleVal)) {
@@ -358,23 +385,24 @@ public class PdfRenderer implements Renderer<byte[]>, ElementVisitor<PDPageConte
         LOGGER.info("Handling TabularElementGroup element.");
         resetTableState();
         for (Attribute attribute : table.getAttributes()) {
-            attribute.accept(this, stream);
+            // Changed from attribute.accept(this, stream)
+            this.handleAttribute(attribute, stream);
         }
         for (Element element : table.getElements()) {
             if (element instanceof ElementGroup) {
                 ElementGroup<?> rowGroup = (ElementGroup<?>) element;
                 for (Element cellElement : rowGroup.getElements()) {
                     if (cellElement instanceof TabularCellElementGroup) {
-                        ((TabularCellElementGroup) cellElement).accept(this, stream);
+                        this.dispatchAndHandleElement(cellElement, stream); // Changed
                     } else {
                         LOGGER.warn("Unexpected element in row ElementGroup: {}", cellElement.getClass().getSimpleName());
                     }
                 }
             } else if (element instanceof TabularCellElementGroup) {
-                ((TabularCellElementGroup) element).accept(this, stream);
+                this.dispatchAndHandleElement(element, stream); // Changed
             } else {
                  LOGGER.warn("Unexpected element in TabularElementGroup: {}", element.getClass().getSimpleName());
-                 element.accept(this, stream);
+                 this.dispatchAndHandleElement(element, stream); // Changed
             }
         }
         return stream;
@@ -385,7 +413,8 @@ public class PdfRenderer implements Renderer<byte[]>, ElementVisitor<PDPageConte
         LOGGER.info("Handling TabularCellElementGroup element.");
         resetCellState();
         for (Attribute attribute : tableCell.getAttributes()) {
-            attribute.accept(this, stream);
+            // Changed from attribute.accept(this, stream)
+            this.handleAttribute(attribute, stream);
         }
         if (this.currentCellBgColor != null) {
             float pdfCellY = this.currentPageHeight - this.currentCellY - this.currentCellHeight;
@@ -394,7 +423,7 @@ public class PdfRenderer implements Renderer<byte[]>, ElementVisitor<PDPageConte
             stream.fill();
         }
         if (this.currentCellBorderColor != null && this.currentCellBorderWidth > 0 &&
-            this.currentCellBorderStyleVal != null && !com.gs.ep.docknight.model.attribute.BorderStyle.NONE.equalsIgnoreCase(this.currentCellBorderStyleVal)) {
+            this.currentCellBorderStyleVal != null && !com.gs.ep.docknight.model.attribute.BorderStyle.NONE.equalsIgnoreCase(this.currentCellBorderStyleVal))) {
             float pdfCellY = this.currentPageHeight - this.currentCellY - this.currentCellHeight;
             stream.setStrokingColor(this.currentCellBorderColor);
             stream.setLineWidth(this.currentCellBorderWidth);
@@ -410,19 +439,18 @@ public class PdfRenderer implements Renderer<byte[]>, ElementVisitor<PDPageConte
             stream.setLineDashPattern(new float[]{}, 0);
         }
         for (Element element : tableCell.getElements()) {
-            element.accept(this, stream);
+            this.dispatchAndHandleElement(element, stream); // Changed
         }
         return stream;
     }
-
-    // TableRow handler removed
 
     @Override
     public PDPageContentStream handleElement(TextElement textElement, PDPageContentStream stream) throws Exception {
         LOGGER.info("Handling TextElement.");
         resetTextState();
         for (Attribute attribute : textElement.getAttributes()) {
-            attribute.accept(this, stream);
+            // Changed from attribute.accept(this, stream)
+            this.handleAttribute(attribute, stream);
         }
         if (this.currentFont == null) {
             this.currentFont = PDType1Font.HELVETICA;
@@ -438,8 +466,12 @@ public class PdfRenderer implements Renderer<byte[]>, ElementVisitor<PDPageConte
         stream.beginText();
         float yInPdf = this.currentPageHeight - this.currentY - this.currentFontSize;
         stream.newLineAtOffset(this.currentX, yInPdf);
+
+        // For Text attribute within TextElement, we still need its handler to be called.
+        // The text content itself is an attribute, not a child element to be dispatched.
         if (textElement.getText() != null) {
-            textElement.getText().accept(this, stream);
+            // Changed from textElement.getText().accept(this, stream)
+            this.handleAttribute(textElement.getText(), stream);
         } else {
             LOGGER.warn("TextElement has no Text attribute.");
         }
@@ -508,7 +540,7 @@ public class PdfRenderer implements Renderer<byte[]>, ElementVisitor<PDPageConte
         Element parent = borderStyle.getParentElement();
         String commonStyleString = null;
         if (borderStyle.getValue() != null && borderStyle.getValue().getCommon() != null) {
-            commonStyleString = borderStyle.getValue().getCommon(); // This is a String
+            commonStyleString = borderStyle.getValue().getCommon();
         }
 
         if (commonStyleString == null || commonStyleString.trim().isEmpty()) {
@@ -648,7 +680,7 @@ public class PdfRenderer implements Renderer<byte[]>, ElementVisitor<PDPageConte
     public PDPageContentStream handleAttribute(PositionalContent positionalContent, PDPageContentStream stream) throws Exception {
         if (positionalContent.getValue() != null) {
             for (Element element : positionalContent.getValue().getElements()) {
-                element.accept(this, stream);
+                 this.dispatchAndHandleElement(element, stream); // Changed
             }
         }
         return stream;
