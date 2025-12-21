@@ -1,0 +1,4 @@
+# SiliconFlow API Configuration
+api.url=https://api.siliconflow.cn/v1/chat/completions
+api.model=Pro/deepseek-ai/DeepSeek-V3.2
+api.key=

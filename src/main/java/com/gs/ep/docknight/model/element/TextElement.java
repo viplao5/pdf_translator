@@ -18,8 +18,11 @@ package com.gs.ep.docknight.model.element;
 
 import org.eclipse.collections.impl.factory.Lists;
 import com.gs.ep.docknight.model.ElementAttribute;
+import com.gs.ep.docknight.model.attribute.FirstLineIndent;
+import com.gs.ep.docknight.model.attribute.HangingIndent;
 import com.gs.ep.docknight.model.attribute.LetterSpacing;
 import com.gs.ep.docknight.model.attribute.Text;
+import com.gs.ep.docknight.model.attribute.TextAlign;
 import com.gs.ep.docknight.model.attribute.TextStyles;
 import com.gs.ep.docknight.model.attribute.Url;
 import java.util.List;
@@ -31,6 +34,9 @@ public class TextElement extends InlineElement<TextElement> implements
     Text.Holder<TextElement>,
     Url.Holder<TextElement>,
     TextStyles.Holder<TextElement>,
+    TextAlign.Holder<TextElement>,
+    HangingIndent.Holder<TextElement>,
+    FirstLineIndent.Holder<TextElement>,
     LetterSpacing.Holder<TextElement> {
 
   private static final long serialVersionUID = 8620645260323059529L;

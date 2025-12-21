@@ -152,8 +152,10 @@ public class PositionalTextGroupingTransformer implements Transformer<Document, 
   private static final double DEFAULT_MAX_LINE_HEIGHT_AND_DISTANCE_FACTOR = 2.0;
   private static final double MAX_LINE_HEIGHT_VARIANCE = 0.4;
   private static final double MAX_LINE_DISTANCE_VARIANCE = 0.5;
-  private static final double ALIGNMENT_EPSILON = 7;                   // if any of points coordinates are lower than this threshold, then they are considered aligned
-  private static final double SEPARATION_EPSILON = 1;                  // If points coordinates are lower than this threshold, then they are considered close.
+  private static final double ALIGNMENT_EPSILON = 7; // if any of points coordinates are lower than this threshold, then
+                                                     // they are considered aligned
+  private static final double SEPARATION_EPSILON = 1; // If points coordinates are lower than this threshold, then they
+                                                      // are considered close.
   private static final double MAX_ALIGNMENT_LINE_HEIGHT_AND_DISTANCE_FACTOR = 5;
   private static final double HORIZONTAL_ALIGNMENT_EPSILON = 0.15;
   private static final double TABLE_SMALL_ELEM_MAX_SIZE = 8;
@@ -195,7 +197,7 @@ public class PositionalTextGroupingTransformer implements Transformer<Document, 
   public PositionalTextGroupingTransformer(ModelCustomizations customizations) {
     this.semanticJumpCalculator = customizations
         .retrieveOrDefault(ModelCustomizationKey.SEMANTIC_JUMP_CALCULATOR,
-            (x, y) ->           // Calculates semantic jump between two lists x and y
+            (x, y) -> // Calculates semantic jump between two lists x and y
             {
               Pair<Integer, Integer> xStats = getDigitAndNonDigitCount(x);
               Pair<Integer, Integer> yStats = getDigitAndNonDigitCount(y);
@@ -218,13 +220,12 @@ public class PositionalTextGroupingTransformer implements Transformer<Document, 
         .retrieveOrDefault(ModelCustomizationKey.DETECT_UNDERLINE, false);
     this.foundNoiseElements = Sets.mutable.empty();
     this.isGridBasedTableDetectionEnabled = customizations
-        .retrieveOrDefault(ModelCustomizationKey.ENABLE_GRID_BASED_TABLE_DETECTION, GridType.NONE)
-        != GridType.NONE;
+        .retrieveOrDefault(ModelCustomizationKey.ENABLE_GRID_BASED_TABLE_DETECTION, GridType.NONE) != GridType.NONE;
     this.isPageNumberedDoc = customizations
         .retrieveOrDefault(ModelCustomizationKey.IS_PAGE_NUMBERED_DOC, false);
     this.useGridForTableExtent = customizations
-        .retrieveOrDefault(ModelCustomizationKey.ENABLE_GRID_BASED_TABLE_DETECTION, GridType.NONE)
-        == GridType.ROW_AND_COL;
+        .retrieveOrDefault(ModelCustomizationKey.ENABLE_GRID_BASED_TABLE_DETECTION,
+            GridType.NONE) == GridType.ROW_AND_COL;
   }
 
   public PositionalTextGroupingTransformer() {
@@ -232,10 +233,12 @@ public class PositionalTextGroupingTransformer implements Transformer<Document, 
   }
 
   /**
-   * Return a pair containing (count of digit elements, count of non digit elements) in {@code
+   * Return a pair containing (count of digit elements, count of non digit
+   * elements) in {@code
    * list}
    *
-   * @param list list of strings in which elements are being counted as digit or non-digit
+   * @param list list of strings in which elements are being counted as digit or
+   *             non-digit
    * @return (count of digit elements, count of non digit elements)
    */
   private static Pair<Integer, Integer> getDigitAndNonDigitCount(MutableList<String> list) {
@@ -273,7 +276,8 @@ public class PositionalTextGroupingTransformer implements Transformer<Document, 
   }
 
   /**
-   * Create indexed collection over simpleAttributes. Indexed collection helps in retrieval of items
+   * Create indexed collection over simpleAttributes. Indexed collection helps in
+   * retrieval of items
    * quickly based on conditions like between (range query), etc.
    *
    * @param attributes simple attributes
@@ -291,11 +295,12 @@ public class PositionalTextGroupingTransformer implements Transformer<Document, 
   /**
    * Creates a new SimpleAttribute
    *
-   * @param objType type of object on which the attribute is being created
-   * @param attrType type of attribute value present in {@code objType}
-   * @param attrName name of the attribute field
-   * @param attrFunction function that will be applied on object of type {@code objType} to retrieve
-   * value of type {@code attrType}
+   * @param objType      type of object on which the attribute is being created
+   * @param attrType     type of attribute value present in {@code objType}
+   * @param attrName     name of the attribute field
+   * @param attrFunction function that will be applied on object of type
+   *                     {@code objType} to retrieve
+   *                     value of type {@code attrType}
    * @return created simpleAttribute
    */
   public static <O, A> SimpleAttribute<O, A> simpleAttribute(Class<O> objType, Class<A> attrType,
@@ -309,11 +314,12 @@ public class PositionalTextGroupingTransformer implements Transformer<Document, 
   }
 
   /**
-   * Construct the intersection query such that there is an intersection between [lowerAttr value,
+   * Construct the intersection query such that there is an intersection between
+   * [lowerAttr value,
    * upperAttr value] and [lowerValue, upperValue)
    *
-   * @param lowerAttr attribute for lower bound
-   * @param upperAttr attribute for upper bound
+   * @param lowerAttr  attribute for lower bound
+   * @param upperAttr  attribute for upper bound
    * @param lowerValue lower bound for query
    * @param upperValue upper bound for query
    * @return the constructed query
@@ -332,7 +338,8 @@ public class PositionalTextGroupingTransformer implements Transformer<Document, 
   }
 
   /**
-   * Apply the between query such that outer bounds are not included in the range query
+   * Apply the between query such that outer bounds are not included in the range
+   * query
    */
   private static <O, A extends Comparable<A>> Between<O, A> betweenExclusive(
       SimpleAttribute<O, A> attribute, A lowerValue, A upperValue) {
@@ -340,12 +347,14 @@ public class PositionalTextGroupingTransformer implements Transformer<Document, 
   }
 
   /**
-   * Apply the {@code query} on the {@code indexedCollection}. Results obtained should be sorted
+   * Apply the {@code query} on the {@code indexedCollection}. Results obtained
+   * should be sorted
    * using the option {@code orderByOption}
    *
-   * @param indexedCollection indexed collection on which is query will be executed
-   * @param query Query which will be executed
-   * @param orderByOption Option on how to sort the result
+   * @param indexedCollection indexed collection on which is query will be
+   *                          executed
+   * @param query             Query which will be executed
+   * @param orderByOption     Option on how to sort the result
    * @return results after performing the query
    */
   private static <O> ResultSet<O> retrieve(IndexedCollection<O> indexedCollection, Query<O> query,
@@ -354,14 +363,18 @@ public class PositionalTextGroupingTransformer implements Transformer<Document, 
   }
 
   /**
-   * Apply the {@code query} on the {@code indexedCollection}. Results obtained should be sorted
+   * Apply the {@code query} on the {@code indexedCollection}. Results obtained
+   * should be sorted
    * using the option {@code orderByOption}
    *
-   * @param indexedCollection indexed collection on which is query will be executed
-   * @param query Query which will be executed
-   * @param orderByOption Option on how to sort the result
-   * @param enableIndexOrdering boolean indicating which strategy to use. (if true, use index
-   * ordering strategy, else use materialize ordering strategy
+   * @param indexedCollection   indexed collection on which is query will be
+   *                            executed
+   * @param query               Query which will be executed
+   * @param orderByOption       Option on how to sort the result
+   * @param enableIndexOrdering boolean indicating which strategy to use. (if
+   *                            true, use index
+   *                            ordering strategy, else use materialize ordering
+   *                            strategy
    * @return results after performing the query
    */
   private static <O> ResultSet<O> retrieve(IndexedCollection<O> indexedCollection, Query<O> query,
@@ -377,22 +390,23 @@ public class PositionalTextGroupingTransformer implements Transformer<Document, 
   }
 
   /**
-   * If all elements in {@possiblePrevTablesToCurTali} is subset of elements in {@code
+   * If all elements in {@possiblePrevTablesToCurTali} is subset of elements in
+   * {@code
    * firstRowWithVerticalGroupHeads}, then expansion is valid.
    *
    * @param firstRowWithVerticalGroupHeads elements in first row with header info
-   * @param possiblePrevTablesToCurtail map with key table and value indicates the row index. [row
-   * index,end] are row which might be curtailed from the table
+   * @param possiblePrevTablesToCurtail    map with key table and value indicates
+   *                                       the row index. [row
+   *                                       index,end] are row which might be
+   *                                       curtailed from the table
    * @return boolean flag if expansion is valid
    */
   private static boolean isExpansionValid(List<MutableList<Element>> firstRowWithVerticalGroupHeads,
       MutableMap<TabularElementGroup<Element>, Integer> possiblePrevTablesToCurtail) {
     MutableList<Element> expansionElements = ListIterate
         .flatCollect(firstRowWithVerticalGroupHeads, elemList -> elemList);
-    return possiblePrevTablesToCurtail.detect((table, lastRowNumToCurtail) ->
-    {
-      for (int currRowIndex = lastRowNumToCurtail; currRowIndex < table.numberOfRows();
-          currRowIndex++) {
+    return possiblePrevTablesToCurtail.detect((table, lastRowNumToCurtail) -> {
+      for (int currRowIndex = lastRowNumToCurtail; currRowIndex < table.numberOfRows(); currRowIndex++) {
         if (table.getCells().get(currRowIndex).anySatisfy(
             cell -> cell.getElements().anySatisfy(elem -> !expansionElements.contains(elem)))) {
           return true;
@@ -403,17 +417,24 @@ public class PositionalTextGroupingTransformer implements Transformer<Document, 
   }
 
   /**
-   * Return element list by merging the elements from {@code unionColumn} and {@code newColumn}. All
-   * the elements in the merged list should lie above {@code possibleTableBottom}. Algo: Iterate
-   * from top to bottom in both the columns. If the element from union column and new column's top
-   * are very close, add new column element in place of union place element If the element from
-   * union column and new column are vertically intersecting, add new column element in place of
-   * union place element If the element from union column is appearing in higher position than
-   * element from new column, add union column element. If the element from new column is appearing
+   * Return element list by merging the elements from {@code unionColumn} and
+   * {@code newColumn}. All
+   * the elements in the merged list should lie above {@code possibleTableBottom}.
+   * Algo: Iterate
+   * from top to bottom in both the columns. If the element from union column and
+   * new column's top
+   * are very close, add new column element in place of union place element If the
+   * element from
+   * union column and new column are vertically intersecting, add new column
+   * element in place of
+   * union place element If the element from union column is appearing in higher
+   * position than
+   * element from new column, add union column element. If the element from new
+   * column is appearing
    * in higher position than element from union column, add new column element.
    *
-   * @param unionColumn union column
-   * @param newColumn new column
+   * @param unionColumn         union column
+   * @param newColumn           new column
    * @param possibleTableBottom possible bottom of table
    * @return elements of merged columns.
    */
@@ -427,10 +448,8 @@ public class PositionalTextGroupingTransformer implements Transformer<Document, 
       Element newColumnElement = newColumn.get(j);
       double unionElementTop = unionElement.getAttribute(Top.class).getMagnitude();
       double newColumnElementTop = newColumnElement.getAttribute(Top.class).getMagnitude();
-      double unionElementBottom =
-          unionElementTop + unionElement.getAttribute(Height.class).getMagnitude();
-      double newColumnElementBottom =
-          newColumnElementTop + newColumnElement.getAttribute(Height.class).getMagnitude();
+      double unionElementBottom = unionElementTop + unionElement.getAttribute(Height.class).getMagnitude();
+      double newColumnElementBottom = newColumnElementTop + newColumnElement.getAttribute(Height.class).getMagnitude();
       if (unionElementTop > possibleTableBottom || newColumnElementTop > possibleTableBottom) {
         break;
       }
@@ -476,7 +495,7 @@ public class PositionalTextGroupingTransformer implements Transformer<Document, 
   /**
    * Check if {@code otherElement} and {@code element} are horizontally aligned.
    *
-   * @param element first element
+   * @param element      first element
    * @param otherElement second element
    * @return boolean flag indicating whether elements are aligned
    */
@@ -506,12 +525,14 @@ public class PositionalTextGroupingTransformer implements Transformer<Document, 
   }
 
   /**
-   * Check whether vertical groups of {@code element} and {@code otheElement} are horizontally
+   * Check whether vertical groups of {@code element} and {@code otheElement} are
+   * horizontally
    * aligned
    *
-   * @param element first element
+   * @param element      first element
    * @param otherElement second element
-   * @return boolean flag indicating whether vertical groups of elements are aligned
+   * @return boolean flag indicating whether vertical groups of elements are
+   *         aligned
    */
   private static boolean isVerticalGroupHorizontalAligning(Element element, Element otherElement) {
     RectangleProperties<Double> verticalGroupTextBoundingBox = element.getPositionalContext()
@@ -519,11 +540,10 @@ public class PositionalTextGroupingTransformer implements Transformer<Document, 
     RectangleProperties<Double> otherVerticalGroupTextBoundingBox = otherElement
         .getPositionalContext().getVerticalGroup().getTextBoundingBox();
 
-    double verticalCenter =
-        (verticalGroupTextBoundingBox.getTop() + verticalGroupTextBoundingBox.getBottom()) / 2.0;
-    double otherVerticalCenter =
-        (otherVerticalGroupTextBoundingBox.getTop() + otherVerticalGroupTextBoundingBox.getBottom())
-            / 2.0;
+    double verticalCenter = (verticalGroupTextBoundingBox.getTop() + verticalGroupTextBoundingBox.getBottom()) / 2.0;
+    double otherVerticalCenter = (otherVerticalGroupTextBoundingBox.getTop()
+        + otherVerticalGroupTextBoundingBox.getBottom())
+        / 2.0;
     double left = verticalGroupTextBoundingBox.getLeft();
     double otherLeft = otherVerticalGroupTextBoundingBox.getLeft();
     double dis = Math.abs(left - otherLeft);
@@ -531,59 +551,65 @@ public class PositionalTextGroupingTransformer implements Transformer<Document, 
   }
 
   /**
-   * Get the visual left of the table. If there is visual left border, return visual left in
-   * positional context. If left element is not null, return right coordinate of left element. Find
-   * all elements from below elements having width > TABLE_SMALL_ELEM_MAX_SIZE and select max width
+   * Get the visual left of the table. If there is visual left border, return
+   * visual left in
+   * positional context. If left element is not null, return right coordinate of
+   * left element. Find
+   * all elements from below elements having width > TABLE_SMALL_ELEM_MAX_SIZE and
+   * select max width
    * if such element exists else get visual left from positional context.
    *
-   * @param left left coordinate of element
+   * @param left                     left coordinate of element
    * @param elementPositionalContext positional context of element
-   * @param leftElement left element of element
+   * @param leftElement              left element of element
    * @return visual left of the table
    */
   private static double getVisualLeftForTable(double left,
       PositionalContext<Element> elementPositionalContext, Element leftElement) {
     return elementPositionalContext.isVisualLeftBorder() ? elementPositionalContext.getVisualLeft()
-        : leftElement == null ?
-            elementPositionalContext.getBelowElements().getElements()
-                .select(e -> e.getAttribute(Width.class).getMagnitude() > TABLE_SMALL_ELEM_MAX_SIZE)
-                .collectDouble(
-                    e -> e.getAttribute(Left.class).getMagnitude() + e.getAttribute(Width.class)
-                        .getMagnitude())
-                .select(r -> r < left).maxIfEmpty(elementPositionalContext.getVisualLeft()) :
-            leftElement.getAttribute(Left.class).getMagnitude() + leftElement
+        : leftElement == null ? elementPositionalContext.getBelowElements().getElements()
+            .select(e -> e.getAttribute(Width.class).getMagnitude() > TABLE_SMALL_ELEM_MAX_SIZE)
+            .collectDouble(
+                e -> e.getAttribute(Left.class).getMagnitude() + e.getAttribute(Width.class)
+                    .getMagnitude())
+            .select(r -> r < left).maxIfEmpty(elementPositionalContext.getVisualLeft())
+            : leftElement.getAttribute(Left.class).getMagnitude() + leftElement
                 .getAttribute(Width.class).getMagnitude();
   }
 
   /**
-   * Get the visual right of the table. If there is visual right border, return visual right in
-   * positional context. If right element is not null, return right coordinate of right element.
-   * Find all elements from below elements having width > TABLE_SMALL_ELEM_MAX_SIZE and select max
+   * Get the visual right of the table. If there is visual right border, return
+   * visual right in
+   * positional context. If right element is not null, return right coordinate of
+   * right element.
+   * Find all elements from below elements having width >
+   * TABLE_SMALL_ELEM_MAX_SIZE and select max
    * width if such element exists else get visual right from positional context.
    *
-   * @param right right coordinate of element
+   * @param right                    right coordinate of element
    * @param elementPositionalContext positional context of element
-   * @param rightElement right element of element
+   * @param rightElement             right element of element
    * @return visual right of the table
    */
   private static double getVisualRightForTable(double right,
       PositionalContext<Element> elementPositionalContext, Element rightElement) {
     return elementPositionalContext.isVisualRightBorder() ? elementPositionalContext
-        .getVisualRight() : rightElement == null ?
-        elementPositionalContext.getBelowElements().getElements()
+        .getVisualRight()
+        : rightElement == null ? elementPositionalContext.getBelowElements().getElements()
             .select(e -> e.getAttribute(Width.class).getMagnitude() > TABLE_SMALL_ELEM_MAX_SIZE)
             .collectDouble(e -> e.getAttribute(Left.class).getMagnitude())
             .select(l -> l > right).minIfEmpty(elementPositionalContext.getVisualRight())
-        : rightElement.getAttribute(Left.class).getMagnitude();
+            : rightElement.getAttribute(Left.class).getMagnitude();
   }
 
   /**
-   * Check if element is horizontally intersecting with range [columnLeft, columnRight] and width of
+   * Check if element is horizontally intersecting with range [columnLeft,
+   * columnRight] and width of
    * intersecting range is grater than TABLE_SMALL_ELEM_MAX_SIZE
    *
-   * @param columnLeft left coordinate of column
+   * @param columnLeft  left coordinate of column
    * @param columnRight right coordinate of column
-   * @param elem element which is to be checked
+   * @param elem        element which is to be checked
    * @return boolean flag if it is intersecting with table column horizontally
    */
   private static boolean isTabularIntersecting(double columnLeft, double columnRight,
@@ -592,18 +618,20 @@ public class PositionalTextGroupingTransformer implements Transformer<Document, 
       double elem2Width = elem.getAttribute(Width.class).getMagnitude();
       if (elem2Width > TABLE_SMALL_ELEM_MAX_SIZE) {
         double elem2Left = elem.getAttribute(Left.class).getMagnitude();
-        return Math.min(columnRight, elem2Left + elem2Width)
-            > Math.max(columnLeft, elem2Left) + TABLE_SMALL_ELEM_MAX_SIZE;
+        return Math.min(columnRight, elem2Left + elem2Width) > Math.max(columnLeft, elem2Left)
+            + TABLE_SMALL_ELEM_MAX_SIZE;
       }
     }
     return false;
   }
 
   /**
-   * Retrieve the first result from the {@code resultSet} if exists, else retrieve null
+   * Retrieve the first result from the {@code resultSet} if exists, else retrieve
+   * null
    *
    * @param resultSet Result set whose element will be retrieved
-   * @return the first result from the {@code resultSet} if exists, else return null
+   * @return the first result from the {@code resultSet} if exists, else return
+   *         null
    */
   private static <O> O retrieveOnlyOneResultElseNull(ResultSet<O> resultSet) {
     Iterator<O> iterator = resultSet.iterator();
@@ -613,23 +641,34 @@ public class PositionalTextGroupingTransformer implements Transformer<Document, 
   /**
    * Helper function to find the visual edge by executing query on borderLineIndex
    *
-   * @param visualEdgeDefault default value of visual edge to return in case no result is fetched
-   * @param edgeElementBoundary boundary coordinate of neighbouring/edge element
-   * @param isEdgeElementBoundaryAligning boolean flag indicating whether edge element boundary is
-   * aligned
-   * @param elementBoundary boundary coordinate of current element
-   * @param isElementBoundaryAligning boolean flag indicating whether current element boundary is
-   * aligned
-   * @param axisAttrClass attribute class whose fetched value from result will be used as visual
-   * edge
-   * @param axisQueryForBorderLinesForElem axis query to search for border lines
-   * @param otherQueryForBorderLinesForElem other query to search for border lines
-   * @param axisQueryForBorderLinesForEdgeElem axis query to include in case edge element boundary >
-   * 0
-   * @param borderLinesOrdering option to sort the retrieved result
-   * @param borderLineIndex indexed collection on which to execute the query
-   * @return pair of visual edge and boolean flag if the edge is border based (extracted from
-   * visible line)
+   * @param visualEdgeDefault                  default value of visual edge to
+   *                                           return in case no result is fetched
+   * @param edgeElementBoundary                boundary coordinate of
+   *                                           neighbouring/edge element
+   * @param isEdgeElementBoundaryAligning      boolean flag indicating whether
+   *                                           edge element boundary is
+   *                                           aligned
+   * @param elementBoundary                    boundary coordinate of current
+   *                                           element
+   * @param isElementBoundaryAligning          boolean flag indicating whether
+   *                                           current element boundary is
+   *                                           aligned
+   * @param axisAttrClass                      attribute class whose fetched value
+   *                                           from result will be used as visual
+   *                                           edge
+   * @param axisQueryForBorderLinesForElem     axis query to search for border
+   *                                           lines
+   * @param otherQueryForBorderLinesForElem    other query to search for border
+   *                                           lines
+   * @param axisQueryForBorderLinesForEdgeElem axis query to include in case edge
+   *                                           element boundary >
+   *                                           0
+   * @param borderLinesOrdering                option to sort the retrieved result
+   * @param borderLineIndex                    indexed collection on which to
+   *                                           execute the query
+   * @return pair of visual edge and boolean flag if the edge is border based
+   *         (extracted from
+   *         visible line)
    */
   private static Pair<Double, Boolean> findVisualEdge(
       double visualEdgeDefault,
@@ -669,39 +708,42 @@ public class PositionalTextGroupingTransformer implements Transformer<Document, 
 
   private static int compareByHorizontalAlignment(Element prevToPrevElement,
       Element previousElement, Element element) {
-    Element comparableElement =
-        prevToPrevElement != null && calculateHorizontalIntersection(element, previousElement) == 0
-            &&
-            calculateHorizontalIntersection(element, prevToPrevElement) > 0 ? prevToPrevElement
+    Element comparableElement = prevToPrevElement != null
+        && calculateHorizontalIntersection(element, previousElement) == 0
+        &&
+        calculateHorizontalIntersection(element, prevToPrevElement) > 0 ? prevToPrevElement
             : previousElement;
     return PositionalElementList.compareByHorizontalAlignment(comparableElement, element);
   }
 
   /**
-   * Calculate horizontal intersection between {@code element} and {@code otherElement}
+   * Calculate horizontal intersection between {@code element} and
+   * {@code otherElement}
    *
-   * @param element first element
+   * @param element      first element
    * @param otherElement second element
-   * @return horizontal intersection between {@code element} and {@code otherElement}
+   * @return horizontal intersection between {@code element} and
+   *         {@code otherElement}
    */
   private static double calculateHorizontalIntersection(Element element, Element otherElement) {
     double elementStart = element.getAttribute(Left.class).getMagnitude();
     double elementEnd = elementStart + element.getAttribute(Width.class).getMagnitude();
     double otherElementStart = otherElement.getAttribute(Left.class).getMagnitude();
-    double otherElementEnd =
-        otherElementStart + otherElement.getAttribute(Width.class).getMagnitude();
+    double otherElementEnd = otherElementStart + otherElement.getAttribute(Width.class).getMagnitude();
     return Math
         .max(Math.min(elementEnd, otherElementEnd) - Math.max(elementStart, otherElementStart), 0);
   }
 
   /**
-   * Check if element horizontal coordinates (abscissa) is intersecting with range (left, right]
+   * Check if element horizontal coordinates (abscissa) is intersecting with range
+   * (left, right]
    *
    * @param element Element whose horizontal coordinates have to be checked
-   * @param left left coordinate of range
-   * @param right right coordinate of range
-   * @return boolean flag indicating whether element is horizontally intersecting with range [left,
-   * right]
+   * @param left    left coordinate of range
+   * @param right   right coordinate of range
+   * @return boolean flag indicating whether element is horizontally intersecting
+   *         with range [left,
+   *         right]
    */
   private static boolean isHorizontallyIntersecting(Element element, double left, double right) {
     if (element != null) {
@@ -713,8 +755,10 @@ public class PositionalTextGroupingTransformer implements Transformer<Document, 
   }
 
   /**
-   * If there is a single text element previous to input {@code line} such that the text element
-   * lies completely within the input {@code line}, then update the alignment for that text element
+   * If there is a single text element previous to input {@code line} such that
+   * the text element
+   * lies completely within the input {@code line}, then update the alignment for
+   * that text element
    *
    * @param line horizontal line
    */
@@ -766,14 +810,14 @@ public class PositionalTextGroupingTransformer implements Transformer<Document, 
         .withTableBasedHeaderFooterDetection(true).withPageNumberedDoc(this.isPageNumberedDoc);
     for (Element docElement : document.getContent().getElementList().getElements()) {
       Page page = (Page) docElement;
+      this.pageWidth = page.getAttribute(Width.class).getMagnitude();
       PositionalElementList<Element> positionalElementList = page.getPositionalContent().getValue();
       this.verticalLineIndex = createVerticalLineIndex();
       this.horizontalLineIndex = createHorizontalLineIndex();
       this.boxedElementIndex = createBoxedElementIndex();
       MutableSet<Element> horizontalLinesForRectilinearPolygons = Sets.mutable.empty();
       MutableSet<Element> verticalLinesForRectilinearPolygons = Sets.mutable.empty();
-      positionalElementList.getElements().forEach(e ->
-      {
+      positionalElementList.getElements().forEach(e -> {
         e.withIdentity(true);
         if (e instanceof Rectangle) {
           positionalElementList.initializeContext(e);
@@ -786,8 +830,7 @@ public class PositionalTextGroupingTransformer implements Transformer<Document, 
           horizontalLinesForRectilinearPolygons.add(e);
         }
       });
-      positionalElementList.getElements().forEach(e ->
-      {
+      positionalElementList.getElements().forEach(e -> {
         if (e instanceof HorizontalLine) {
           Rectangle2D rectangle = this.findRectangle(e, false);
           if (rectangle != null) {
@@ -854,14 +897,15 @@ public class PositionalTextGroupingTransformer implements Transformer<Document, 
             PositionalContext<Element> context = elem.getPositionalContext();
             if (elem instanceof TextElement && context.getTabularGroup() == null
                 && (context.getPagePartitionType() == null
-                || context.getPagePartitionType() == PagePartitionType.CONTENT)) {
+                    || context.getPagePartitionType() == PagePartitionType.CONTENT)) {
               this.findTabularGroup(elem);
             }
           }
         }
       }
     }
-    // document.getContainingElements(e -> e instanceof TextElement).forEach(element -> ((TextElement) element).addAsConcept(document.getConceptBase()));
+    // document.getContainingElements(e -> e instanceof TextElement).forEach(element
+    // -> ((TextElement) element).addAsConcept(document.getConceptBase()));
 
     float timeTaken = (System.currentTimeMillis() - startTime) / 1000.0f;
     LOGGER.info("[{}][{}][{}s] Returning Text element groups found in document.",
@@ -871,7 +915,8 @@ public class PositionalTextGroupingTransformer implements Transformer<Document, 
   }
 
   /**
-   * Checks if the {@code elem} is a background image or not. If the existing text element area
+   * Checks if the {@code elem} is a background image or not. If the existing text
+   * element area
    * overlaps with this element's area then {@code elem} is a background image.
    *
    * @param elem Element to be checked
@@ -1000,26 +1045,27 @@ public class PositionalTextGroupingTransformer implements Transformer<Document, 
           int rowDistance = prevElement == null ? 0
               : PositionalElementList.compareByHorizontalAlignment(element, prevElement);
 
-          // Set the table bottom if row distance is greater than threshold or if ratio of rowDistance/maxRowDistance greater than threshold
-          // or if font ratio between current element and previous element is greater than threshold or
+          // Set the table bottom if row distance is greater than threshold or if ratio of
+          // rowDistance/maxRowDistance greater than threshold
+          // or if font ratio between current element and previous element is greater than
+          // threshold or
           // if current row is significantly different than previous row.
           if (rowDistance > 0) {
-            boolean prevAndCurrElemPartOfSameBorderBox =
-                element.getPositionalContext().getBoundingRectangle() != null
-                    && element.getPositionalContext().getBoundingRectangle() == prevElement
+            boolean prevAndCurrElemPartOfSameBorderBox = element.getPositionalContext().getBoundingRectangle() != null
+                && element.getPositionalContext().getBoundingRectangle() == prevElement
                     .getPositionalContext().getBoundingRectangle();
-            boolean isAccrossPageBreak =
-                element.getPositionalContext().getPageBreakNumber() != prevElement
-                    .getPositionalContext().getPageBreakNumber();
+            boolean isAccrossPageBreak = element.getPositionalContext().getPageBreakNumber() != prevElement
+                .getPositionalContext().getPageBreakNumber();
             if (isAccrossPageBreak) {
               if (rowDistance > MAX_INTER_ROW_DISTANCE + (this.isGridBasedTableDetectionEnabled
-                  ? ACROSS_PAGE_BREAK_FACTOR_FOR_ROW_DISTANCE : 0)) {
+                  ? ACROSS_PAGE_BREAK_FACTOR_FOR_ROW_DISTANCE
+                  : 0)) {
                 tableBottom = element.getAttribute(Top.class).getMagnitude() - SEPARATION_EPSILON;
                 break;
               }
             } else if (!prevAndCurrElemPartOfSameBorderBox && (rowDistance > MAX_INTER_ROW_DISTANCE
                 || (maxRowDistance > 0 && rowNumber > 0
-                && rowDistance / maxRowDistance > TABLE_ROW_DISTANCE_VARIANCE))) {
+                    && rowDistance / maxRowDistance > TABLE_ROW_DISTANCE_VARIANCE))) {
               tableBottom = element.getAttribute(Top.class).getMagnitude() - SEPARATION_EPSILON;
               break;
             } else if (element.getAttribute(FontSize.class).getMagnitude() / prevElement
@@ -1028,8 +1074,7 @@ public class PositionalTextGroupingTransformer implements Transformer<Document, 
               break;
             }
             if (prevRow != null && this.isSignificant(prevRow, currRow)) {
-              tableBottom =
-                  currRow.getFirst().getAttribute(Top.class).getMagnitude() - SEPARATION_EPSILON;
+              tableBottom = currRow.getFirst().getAttribute(Top.class).getMagnitude() - SEPARATION_EPSILON;
               currRow = null;
               rowNumber--;
               break;
@@ -1043,9 +1088,10 @@ public class PositionalTextGroupingTransformer implements Transformer<Document, 
                 return;
               }
 
-              // here, check if should persist with expansion. If yes, curtail, else take only the last element of each cell in header row
+              // here, check if should persist with expansion. If yes, curtail, else take only
+              // the last element of each cell in header row
               if (isExpansionValid(firstRowWithVerticalGroupHeads, possiblePrevTablesToCurtail)) {
-                //curtail
+                // curtail
                 possiblePrevTablesToCurtail.forEachKeyValue(TabularElementGroup::curtail);
               } else {
                 // remove header expansion
@@ -1089,7 +1135,7 @@ public class PositionalTextGroupingTransformer implements Transformer<Document, 
               TabularElementGroup<Element> tabularGroup = verticalGrpElemContext.getTabularGroup();
               if (tabularGroup != null) {
                 int curtailedNumRows = Math.min(possiblePrevTablesToCurtail
-                        .getOrDefault(tabularGroup, tabularGroup.numberOfRows()),
+                    .getOrDefault(tabularGroup, tabularGroup.numberOfRows()),
                     verticalGrpElemContext.getTabularRow());
                 possiblePrevTablesToCurtail.put(tabularGroup, curtailedNumRows);
               }
@@ -1113,8 +1159,7 @@ public class PositionalTextGroupingTransformer implements Transformer<Document, 
 
         if (currRow != null) {
           if (prevRow != null && this.isSignificant(prevRow, currRow)) {
-            tableBottom =
-                currRow.getFirst().getAttribute(Top.class).getMagnitude() - SEPARATION_EPSILON;
+            tableBottom = currRow.getFirst().getAttribute(Top.class).getMagnitude() - SEPARATION_EPSILON;
             rowNumber--;
           } else {
             numProperRows += currRow.size() > 1 ? 1 : 0;
@@ -1133,7 +1178,8 @@ public class PositionalTextGroupingTransformer implements Transformer<Document, 
             greaterThan(RIGHT, tableBoundary.getLeft()), lessThan(LEFT, tableBoundary.getRight()));
         List<TextElement> elementsInColOrder = Lists.mutable
             .ofAll(retrieve(this.boxedElementIndex, queryForTableElements,
-                orderBy(ascending(LEFT), ascending(TOP)))).selectInstancesOf(TextElement.class);
+                orderBy(ascending(LEFT), ascending(TOP))))
+            .selectInstancesOf(TextElement.class);
         SortedSet<Double> prevElementRights = SortedSets.mutable.of(DOUBLE_COMPARATOR_WO_EQUALITY);
         Set<Integer> prevElementRowNums = Sets.mutable.empty();
         int columnNumber = 0;
@@ -1147,8 +1193,8 @@ public class PositionalTextGroupingTransformer implements Transformer<Document, 
             double elementRight = elementLeft + elementWidth;
             double intersection = i + 1 < elementsInColOrder.size() ? elementWidth - Math
                 .min(elementsInColOrder.get(i + 1)
-                    .getAttribute(Left.class).getMagnitude() - elementLeft, elementWidth) :
-                prevElementRights.isEmpty() || elementLeft > prevElementRights.last() ? elementWidth
+                    .getAttribute(Left.class).getMagnitude() - elementLeft, elementWidth)
+                : prevElementRights.isEmpty() || elementLeft > prevElementRights.last() ? elementWidth
                     : 0.0;
             int prevElemHeadSetSize = prevElementRights.headSet(elementLeft).size();
             double score = prevElementRights.isEmpty() ? 0.0
@@ -1209,7 +1255,8 @@ public class PositionalTextGroupingTransformer implements Transformer<Document, 
    *
    * @param prevRow elements in previous row
    * @param currRow elements in current row
-   * @return boolean flag indicating {@code currRow} has significant changes than {@code prevRow}
+   * @return boolean flag indicating {@code currRow} has significant changes than
+   *         {@code prevRow}
    */
   private boolean isSignificant(MutableList<Element> prevRow, MutableList<Element> currRow) {
     TextStyles textStyles = currRow.getFirst().getAttribute(TextStyles.class);
@@ -1219,8 +1266,10 @@ public class PositionalTextGroupingTransformer implements Transformer<Document, 
   }
 
   /**
-   * Finds the table boundary which has column {@code startingColumn} within it. Table boundary is
-   * calculated by extending the columns in left/right direction starting from column {@code
+   * Finds the table boundary which has column {@code startingColumn} within it.
+   * Table boundary is
+   * calculated by extending the columns in left/right direction starting from
+   * column {@code
    * startingColumn}
    *
    * @param startingColumn starting column
@@ -1228,8 +1277,7 @@ public class PositionalTextGroupingTransformer implements Transformer<Document, 
    */
   private RectangleProperties<Double> findTableBoundary(Column startingColumn) {
     MutableList<Element> unionColumn = startingColumn.elements;
-    double tableTop =
-        unionColumn.getFirst().getAttribute(Top.class).getMagnitude() - SEPARATION_EPSILON;
+    double tableTop = unionColumn.getFirst().getAttribute(Top.class).getMagnitude() - SEPARATION_EPSILON;
     double tableLeft = unionColumn.collect(e -> e.getAttribute(Left.class).getMagnitude()).min()
         - SEPARATION_EPSILON;
     SortedSet<Double> colBoundaries = SortedSets.mutable
@@ -1321,18 +1369,30 @@ public class PositionalTextGroupingTransformer implements Transformer<Document, 
   }
 
   /**
-   * Find the column elements of table keeping {@code elem} as first element. Algo: Keep adding
-   * below elements within visual bounds such that is satisfies following properties: <ol>
-   * <li>Bounding rectangle of elem and below elem is same or (both elem belongs to different page
-   * and below elem does not belong to table)</li> <li>Distance between below element and column
-   * boundary is greater than TABLE_COL_FIT_ALLOWANCE and below element's left and right elements
-   * are not intersecting with current column.</li> <li>Below element is not null</li> <li>If
-   * encountered below element belongs to noise category, then ignore this element and continue
-   * search for next below element</li> </ol>
+   * Find the column elements of table keeping {@code elem} as first element.
+   * Algo: Keep adding
+   * below elements within visual bounds such that is satisfies following
+   * properties:
+   * <ol>
+   * <li>Bounding rectangle of elem and below elem is same or (both elem belongs
+   * to different page
+   * and below elem does not belong to table)</li>
+   * <li>Distance between below element and column
+   * boundary is greater than TABLE_COL_FIT_ALLOWANCE and below element's left and
+   * right elements
+   * are not intersecting with current column.</li>
+   * <li>Below element is not null</li>
+   * <li>If
+   * encountered below element belongs to noise category, then ignore this element
+   * and continue
+   * search for next below element</li>
+   * </ol>
    *
-   * @param elem top element in the column
-   * @param ignoreHorizontalAlignment boolean flag indicating to compute horizontal alignment if it
-   * is false, else assume elements to be horizontally aligned if it is true
+   * @param elem                      top element in the column
+   * @param ignoreHorizontalAlignment boolean flag indicating to compute
+   *                                  horizontal alignment if it
+   *                                  is false, else assume elements to be
+   *                                  horizontally aligned if it is true
    * @return column of table
    */
   private Column findColumnElements(Element elem, boolean ignoreHorizontalAlignment) {
@@ -1387,34 +1447,32 @@ public class PositionalTextGroupingTransformer implements Transformer<Document, 
           }
           if (isHorizontallyAligned) {
             double belowElementLeft = belowElement.getAttribute(Left.class).getMagnitude();
-            double belowElementRight =
-                belowElementLeft + belowElement.getAttribute(Width.class).getMagnitude();
+            double belowElementRight = belowElementLeft + belowElement.getAttribute(Width.class).getMagnitude();
 
             elementTop = belowElement.getAttribute(Top.class).getMagnitude();
-            // If below element is within visual boundary and its left and right elements are not intersecting with current column.
+            // If below element is within visual boundary and its left and right elements
+            // are not intersecting with current column.
             if (belowElementLeft >= elemVisualLeft - TABLE_COL_FIT_ALLOWANCE
                 && belowElementRight <= elemVisualRight + TABLE_COL_FIT_ALLOWANCE
                 && !isTabularIntersecting(columnLeft, columnRight, belowLeftElem)
                 && !isTabularIntersecting(columnLeft, columnRight, belowRightElem)) {
               isAligning = true;
-              if (belowLeftElem == null || belowLeftElem.getAttribute(Width.class).getMagnitude()
-                  > TABLE_SMALL_ELEM_MAX_SIZE) {
+              if (belowLeftElem == null
+                  || belowLeftElem.getAttribute(Width.class).getMagnitude() > TABLE_SMALL_ELEM_MAX_SIZE) {
                 double belowVisualLeft = getVisualLeftForTable(belowElementLeft, belowContext,
                     belowLeftElem);
                 elemVisualLeft = Math.max(elemVisualLeft, belowVisualLeft);
               }
-              if (belowRightElem == null || belowRightElem.getAttribute(Width.class).getMagnitude()
-                  > TABLE_SMALL_ELEM_MAX_SIZE) {
+              if (belowRightElem == null
+                  || belowRightElem.getAttribute(Width.class).getMagnitude() > TABLE_SMALL_ELEM_MAX_SIZE) {
                 double belowVisualRight = getVisualRightForTable(belowElementRight, belowContext,
                     belowRightElem);
                 elemVisualRight = Math.min(elemVisualRight, belowVisualRight);
               }
-              nonNullLeftElemCount =
-                  belowLeftElem != null && isLeftAligning ? nonNullLeftElemCount + 1
-                      : nonNullLeftElemCount;
-              nonNullRightElemCount =
-                  belowRightElem != null && isRightAligning ? nonNullRightElemCount + 1
-                      : nonNullRightElemCount;
+              nonNullLeftElemCount = belowLeftElem != null && isLeftAligning ? nonNullLeftElemCount + 1
+                  : nonNullLeftElemCount;
+              nonNullRightElemCount = belowRightElem != null && isRightAligning ? nonNullRightElemCount + 1
+                  : nonNullRightElemCount;
               columnLeft = Math.min(columnLeft, belowElementLeft);
               columnRight = Math.max(columnRight, belowElementRight);
             } else if (this.checkForTabularNoise(belowElement) || belowContext.getVerticalGroup()
@@ -1431,22 +1489,22 @@ public class PositionalTextGroupingTransformer implements Transformer<Document, 
       }
       elementPositionalContext = elem.getPositionalContext();
     }
-    elem =
-        elem != null && elem.getPositionalContext().getVerticalGroup() == verticalGrp ? verticalGrp
-            .getFirst() : elem;
+    elem = elem != null && elem.getPositionalContext().getVerticalGroup() == verticalGrp ? verticalGrp
+        .getFirst() : elem;
     int direction = nonNullLeftElemCount > 0 ? DIRECTION_LEFT_RIGHT_BOTH : DIRECTION_RIGHT;
     double boundary = elem == null ? this.pagePartition.bottomBoundary
         : elem.getAttribute(Top.class).getMagnitude();
     Element lastElem = columnElements.getLast();
-    double bottom =
-        lastElem.getAttribute(Top.class).getMagnitude() + lastElem.getAttribute(Height.class)
-            .getMagnitude();
+    double bottom = lastElem.getAttribute(Top.class).getMagnitude() + lastElem.getAttribute(Height.class)
+        .getMagnitude();
     return new Column(columnElements, direction, boundary, bottom);
   }
 
   /**
-   * Checks if passed element should be treated as a noise element for the tabular structure. If
-   * yes, then the noise element does not interfere in column boundary calculation. Eg: any element
+   * Checks if passed element should be treated as a noise element for the tabular
+   * structure. If
+   * yes, then the noise element does not interfere in column boundary
+   * calculation. Eg: any element
    * containing 'Note:' is a noise element.
    */
   private boolean checkForTabularNoise(Element element) {
@@ -1455,10 +1513,12 @@ public class PositionalTextGroupingTransformer implements Transformer<Document, 
   }
 
   /**
-   * Find rectangle by considering the {@code elem} the above horizontal line for the rectangle
+   * Find rectangle by considering the {@code elem} the above horizontal line for
+   * the rectangle
    *
-   * @param elem top horizontal line of the generated rectangle
-   * @param includeBroken boolean flag to search for rectangle spanning multiple paritions
+   * @param elem          top horizontal line of the generated rectangle
+   * @param includeBroken boolean flag to search for rectangle spanning multiple
+   *                      paritions
    * @return generated rectangle
    */
   private Rectangle2D findRectangle(Element elem, boolean includeBroken) {
@@ -1485,9 +1545,8 @@ public class PositionalTextGroupingTransformer implements Transformer<Document, 
       if (verticalLinesForRectangle != null) {
         // Find the below horizontal line of the rectangle
         Element firstLine = verticalLinesForRectangle.getOne();
-        down =
-            firstLine.getAttribute(Top.class).getMagnitude() + firstLine.getAttribute(Stretch.class)
-                .getMagnitude();
+        down = firstLine.getAttribute(Top.class).getMagnitude() + firstLine.getAttribute(Stretch.class)
+            .getMagnitude();
         Query<Element> queryForHorizontalLine = and(
             betweenExclusive(TOP, down - SEPARATION_EPSILON, down + SEPARATION_EPSILON),
             betweenExclusive(LEFT, left - SEPARATION_EPSILON, left + SEPARATION_EPSILON),
@@ -1496,7 +1555,8 @@ public class PositionalTextGroupingTransformer implements Transformer<Document, 
         horizontalLine = retrieveOnlyOneResultElseNull(
             this.horizontalLineIndex.retrieve(queryForHorizontalLine));
 
-        // If horizontal line is not found, find box element below the current line and try to find horizontal line again below the box element
+        // If horizontal line is not found, find box element below the current line and
+        // try to find horizontal line again below the box element
         if (horizontalLine == null && includeBroken) {
           Iterator<Element> nextBoxedElementsIterator = retrieve(this.boxedElementIndex,
               betweenExclusive(TOP, down, down + CONTEXT_LIMIT), orderBy(ascending(TOP)))
@@ -1511,7 +1571,8 @@ public class PositionalTextGroupingTransformer implements Transformer<Document, 
       }
     }
 
-    // Checks if elements inside the rectangle aligned tabularly. If aligned, then set bounding rectangle for each element to the created rectangle
+    // Checks if elements inside the rectangle aligned tabularly. If aligned, then
+    // set bounding rectangle for each element to the created rectangle
     if (horizontalLine != null) {
       Rectangle2D rectangle = new Rectangle2D.Double(left, top, width, down - top);
       MutableList<Element> elementsInsideRectangle = this.findElementsWithinBoundingBox(rectangle);
@@ -1571,7 +1632,7 @@ public class PositionalTextGroupingTransformer implements Transformer<Document, 
    * verticalLinesOnPage}.
    *
    * @param horizontalLinesOnPage horizontal lines within page.
-   * @param verticalLinesOnPage vertical lines within page.
+   * @param verticalLinesOnPage   vertical lines within page.
    */
   private void findRectilinearPolygons(MutableSet<Element> horizontalLinesOnPage,
       MutableSet<Element> verticalLinesOnPage) {
@@ -1595,21 +1656,24 @@ public class PositionalTextGroupingTransformer implements Transformer<Document, 
   }
 
   /**
-   * Construct a predicate to check whether two vertical lines can be combined or not. The vertical
-   * lines can be combined if it satisfies either of the condition: <ol> <li>The lines are present
-   * on same page and they are close to each other.</li> <li>The liens are present on different page
-   * and there exists no text element between the lines.</li> </ol>
+   * Construct a predicate to check whether two vertical lines can be combined or
+   * not. The vertical
+   * lines can be combined if it satisfies either of the condition:
+   * <ol>
+   * <li>The lines are present
+   * on same page and they are close to each other.</li>
+   * <li>The liens are present on different page
+   * and there exists no text element between the lines.</li>
+   * </ol>
    *
    * @return constructed predicate
    */
   private Predicate2<VerticalLine, VerticalLine> getVerticalLineCombineCondition() {
-    return (aboveLine, belowLine) ->
-    {
+    return (aboveLine, belowLine) -> {
       PositionalElementList<Element> elementList = aboveLine.getElementList();
       int aboveLinePageBreakNumber = elementList.getPageBreakNumber(aboveLine);
       int belowLinePageBreakNumber = elementList.getPageBreakNumber(belowLine);
-      double aboveLineEndY =
-          aboveLine.getTop().getMagnitude() + aboveLine.getStretch().getMagnitude();
+      double aboveLineEndY = aboveLine.getTop().getMagnitude() + aboveLine.getStretch().getMagnitude();
       double belowLineBeginY = belowLine.getTop().getMagnitude();
       if (aboveLinePageBreakNumber == belowLinePageBreakNumber) {
         return belowLineBeginY - aboveLineEndY < SEPARATION_EPSILON;
@@ -1623,14 +1687,14 @@ public class PositionalTextGroupingTransformer implements Transformer<Document, 
   }
 
   /**
-   * Construct a predicate to check whether vertical open rectangle can be closed or not. It can be
+   * Construct a predicate to check whether vertical open rectangle can be closed
+   * or not. It can be
    * closed if there exists no boxed element at the closing border position.
    *
    * @return constructed predicate
    */
   private Predicate<OpenRectangle> getVerticalOpenRectangleCombineCondition() {
-    return openRectangle ->
-    {
+    return openRectangle -> {
       VerticalLine closingBorder = (VerticalLine) openRectangle.findClosingBorder();
       double closingBorderX = closingBorder.getLeft().getMagnitude();
       double closingBorderTopY = closingBorder.getTop().getMagnitude();
@@ -1650,7 +1714,8 @@ public class PositionalTextGroupingTransformer implements Transformer<Document, 
   /**
    * Assign bounding box for every element within {@code rectilinearPolygons}
    *
-   * @param rectilinearPolygons polygon whose element's bounding box is to assigned
+   * @param rectilinearPolygons polygon whose element's bounding box is to
+   *                            assigned
    */
   private void assignBoundingBoxesForRectilinearPolygons(
       MutableList<RectilinearPolygon> rectilinearPolygons) {
@@ -1691,9 +1756,14 @@ public class PositionalTextGroupingTransformer implements Transformer<Document, 
   }
 
   /**
-   * Checks whether the elements inside the rectangle are aligned in table format. Elements are
-   * aligned in tabularly if <ol> <li>there are atleast two rows</li> <li>There exists atleast two
-   * items in either of the row</li> </ol>
+   * Checks whether the elements inside the rectangle are aligned in table format.
+   * Elements are
+   * aligned in tabularly if
+   * <ol>
+   * <li>there are atleast two rows</li>
+   * <li>There exists atleast two
+   * items in either of the row</li>
+   * </ol>
    *
    * @param elementsInsideRectangle box elements inside the rectangle
    * @return boolean flag indicating whether elements are aligned tabularly or not
@@ -1712,7 +1782,7 @@ public class PositionalTextGroupingTransformer implements Transformer<Document, 
       } else {
         currColCount++;
       }
-      if (rowCount > 1 && colCount > 1)  // Breaking early to optimize the method
+      if (rowCount > 1 && colCount > 1) // Breaking early to optimize the method
       {
         break;
       }
@@ -1723,10 +1793,11 @@ public class PositionalTextGroupingTransformer implements Transformer<Document, 
   }
 
   /**
-   * Retrieve the left and right border vertical lines if different between their lengths is less
+   * Retrieve the left and right border vertical lines if different between their
+   * lengths is less
    * than SEPARATION_EPSILOM
    *
-   * @param queryForFirstVerticalLine query on how to find first vertical line
+   * @param queryForFirstVerticalLine  query on how to find first vertical line
    * @param queryForSecondVerticalLine query on how to find second vertical line
    * @return pair of left and right border vertical lines
    */
@@ -1751,22 +1822,19 @@ public class PositionalTextGroupingTransformer implements Transformer<Document, 
   /**
    * Method to get visual left of element
    *
-   * @param top top coordinate of element
-   * @param bottom bottom coordinte of element
-   * @param left left coordinate of element
+   * @param top           top coordinate of element
+   * @param bottom        bottom coordinte of element
+   * @param left          left coordinate of element
    * @param alignmentLeft left alignment of element
-   * @param leftElement shadow left element of element
+   * @param leftElement   shadow left element of element
    * @return visual left of element
    */
   private Pair<Double, Boolean> findVisualLeft(double top, double bottom, double left,
       double alignmentLeft, Element leftElement) {
-    double leftElementAlignmentRight =
-        leftElement != null ? leftElement.getPositionalContext().getAlignmentRight() : 0;
-    double leftElementRight =
-        leftElement != null ? leftElement.getAttribute(Left.class).getMagnitude() +
-            leftElement.getAttribute(Width.class).getMagnitude() : -1;
-    boolean isLeftElementBoundaryAligning =
-        leftElementAlignmentRight > 0 && leftElementAlignmentRight < left;
+    double leftElementAlignmentRight = leftElement != null ? leftElement.getPositionalContext().getAlignmentRight() : 0;
+    double leftElementRight = leftElement != null ? leftElement.getAttribute(Left.class).getMagnitude() +
+        leftElement.getAttribute(Width.class).getMagnitude() : -1;
+    boolean isLeftElementBoundaryAligning = leftElementAlignmentRight > 0 && leftElementAlignmentRight < left;
     boolean isElementBoundaryAligning = alignmentLeft > 0 && alignmentLeft > leftElementRight;
     return findVisualEdge(
         0,
@@ -1788,19 +1856,18 @@ public class PositionalTextGroupingTransformer implements Transformer<Document, 
   /**
    * Method to get visual right of element
    *
-   * @param top top coordinate of element
-   * @param bottom bottom coordinte of element
-   * @param right right coordinate of element
+   * @param top            top coordinate of element
+   * @param bottom         bottom coordinte of element
+   * @param right          right coordinate of element
    * @param alignmentRight right alignment of element
-   * @param rightElement shadow right element of element
+   * @param rightElement   shadow right element of element
    * @return visual right of element
    */
   private Pair<Double, Boolean> findVisualRight(double top, double bottom, double right,
       double alignmentRight, Element rightElement) {
-    double rightElementAlignmentLeft =
-        rightElement != null ? rightElement.getPositionalContext().getAlignmentLeft() : 0;
-    double rightElementLeft =
-        rightElement != null ? rightElement.getAttribute(Left.class).getMagnitude() : -1;
+    double rightElementAlignmentLeft = rightElement != null ? rightElement.getPositionalContext().getAlignmentLeft()
+        : 0;
+    double rightElementLeft = rightElement != null ? rightElement.getAttribute(Left.class).getMagnitude() : -1;
     boolean isRightElementBoundaryAligning = rightElementAlignmentLeft > right;
     boolean isElementBoundaryAligning = alignmentRight > 0 && alignmentRight < rightElementLeft;
     return findVisualEdge(
@@ -1823,17 +1890,16 @@ public class PositionalTextGroupingTransformer implements Transformer<Document, 
   /**
    * Method to get visual top of element
    *
-   * @param top top coordinate of element
-   * @param left left coordinate of element
-   * @param right right coordinate of element
+   * @param top          top coordinate of element
+   * @param left         left coordinate of element
+   * @param right        right coordinate of element
    * @param aboveElement shadow above element of element
    * @return visual top of element
    */
   private Pair<Double, Boolean> findVisualTop(double top, double left, double right,
       Element aboveElement) {
-    double aboveElementBottom =
-        aboveElement != null ? aboveElement.getAttribute(Top.class).getMagnitude() +
-            aboveElement.getAttribute(Height.class).getMagnitude() : this.pagePartition.topBoundary;
+    double aboveElementBottom = aboveElement != null ? aboveElement.getAttribute(Top.class).getMagnitude() +
+        aboveElement.getAttribute(Height.class).getMagnitude() : this.pagePartition.topBoundary;
     return findVisualEdge(
         this.pagePartition.topBoundary,
         aboveElementBottom,
@@ -1852,17 +1918,16 @@ public class PositionalTextGroupingTransformer implements Transformer<Document, 
   /**
    * Method to get visual bottom of element
    *
-   * @param bottom bottom coordinate of element
-   * @param left left coordinate of element
-   * @param right right coordinate of element
+   * @param bottom       bottom coordinate of element
+   * @param left         left coordinate of element
+   * @param right        right coordinate of element
    * @param belowElement shadow below element of element
    * @return visual bottom of element
    */
   private Pair<Double, Boolean> findVisualBottom(double bottom, double left, double right,
       Element belowElement) {
-    double belowElementTop =
-        belowElement != null ? belowElement.getAttribute(Top.class).getMagnitude()
-            : this.pagePartition.bottomBoundary;
+    double belowElementTop = belowElement != null ? belowElement.getAttribute(Top.class).getMagnitude()
+        : this.pagePartition.bottomBoundary;
     return findVisualEdge(
         this.pagePartition.bottomBoundary,
         belowElementTop,
@@ -1881,8 +1946,8 @@ public class PositionalTextGroupingTransformer implements Transformer<Document, 
   /**
    * Find elements which is present at above position than current element
    *
-   * @param bottom bottom coordinate of current element
-   * @param visualLeft visual left of current element
+   * @param bottom      bottom coordinate of current element
+   * @param visualLeft  visual left of current element
    * @param visualRight visual right of current element
    * @return above elements
    */
@@ -1901,8 +1966,8 @@ public class PositionalTextGroupingTransformer implements Transformer<Document, 
   /**
    * Find elements which is present at below position than current element
    *
-   * @param top top coordinate of current element
-   * @param visualLeft visual left of current element
+   * @param top         top coordinate of current element
+   * @param visualLeft  visual left of current element
    * @param visualRight visual right of current element
    * @return below elements
    */
@@ -1921,8 +1986,8 @@ public class PositionalTextGroupingTransformer implements Transformer<Document, 
   /**
    * Find elements which is present at left position than current element
    *
-   * @param left left coordinate of current element
-   * @param visualTop visual top of current element
+   * @param left         left coordinate of current element
+   * @param visualTop    visual top of current element
    * @param visualBottom visual bottom of current element
    * @return left elements
    */
@@ -1941,8 +2006,8 @@ public class PositionalTextGroupingTransformer implements Transformer<Document, 
   /**
    * Find elements which is present at right position than current element
    *
-   * @param right right coordinate of current element
-   * @param visualTop visual top of current element
+   * @param right        right coordinate of current element
+   * @param visualTop    visual top of current element
    * @param visualBottom visual bottom of current element
    * @return right elements
    */
@@ -1961,15 +2026,17 @@ public class PositionalTextGroupingTransformer implements Transformer<Document, 
   /**
    * Find surrounding elements
    *
-   * @param axisCondition axis query
-   * @param otherCondition other condition to include in query
-   * @param elementOrdering option to sort by the results
-   * @param otherStartAttrClass -
+   * @param axisCondition         axis query
+   * @param otherCondition        other condition to include in query
+   * @param elementOrdering       option to sort by the results
+   * @param otherStartAttrClass   -
    * @param otherStretchAttrClass -
-   * @param traversalThreshold Elements returned should be present in number of lines which is less
-   * than this threshold
-   * @param isElementLineCrossed predicate which returns true if current element is present on
-   * different line than current element
+   * @param traversalThreshold    Elements returned should be present in number of
+   *                              lines which is less
+   *                              than this threshold
+   * @param isElementLineCrossed  predicate which returns true if current element
+   *                              is present on
+   *                              different line than current element
    * @return element group consisting of surrounding elements
    */
   private ElementGroup<Element> findSurroundingElements(
@@ -1999,8 +2066,7 @@ public class PositionalTextGroupingTransformer implements Transformer<Document, 
         }
       }
       double resultOtherStart = resultElement.getAttribute(otherStartAttrClass).getMagnitude();
-      double resultOtherEnd =
-          resultOtherStart + resultElement.getAttribute(otherStretchAttrClass).getMagnitude();
+      double resultOtherEnd = resultOtherStart + resultElement.getAttribute(otherStretchAttrClass).getMagnitude();
       Pair<Double, Double> elemInterval = Tuples.pair(resultOtherStart, resultOtherEnd);
       SortedSet<Pair<Double, Double>> intervalsHead = elemIntervals.headSet(elemInterval);
       SortedSet<Pair<Double, Double>> intervalsTail = elemIntervals.tailSet(elemInterval);
@@ -2016,15 +2082,17 @@ public class PositionalTextGroupingTransformer implements Transformer<Document, 
   }
 
   /**
-   * Find the tabular below element of current element Algo: We keep iterating below elements within
-   * visual bound. We stop at the iteration when current element and that element is horizontally
+   * Find the tabular below element of current element Algo: We keep iterating
+   * below elements within
+   * visual bound. We stop at the iteration when current element and that element
+   * is horizontally
    * intersecting
    *
-   * @param top top coordinate of current element
-   * @param visualLeft visual left of current element in table
+   * @param top         top coordinate of current element
+   * @param visualLeft  visual left of current element in table
    * @param visualRight visual right of current element in table
-   * @param left left coordinate of current element
-   * @param right right coordiant of current element
+   * @param left        left coordinate of current element
+   * @param right       right coordiant of current element
    * @return tabular below element
    */
   private Pair<Element, Pair<Double, Double>> findTabularBelowElement(double top, double visualLeft,
@@ -2059,13 +2127,18 @@ public class PositionalTextGroupingTransformer implements Transformer<Document, 
   /**
    * Find shadow above element
    *
-   * @param bottom bottom coordinate of element whose shadow above element has to be calculated.
-   * @param visualLeft visual left coordinate of element whose shadow above element has to be
-   * calculated.
-   * @param visualRight visual right coordinate of element whose shadow above element has to be
-   * calculated.
-   * @param left left coordinate of element whose shadow above element has to be calculated.
-   * @param right right coordinate of element whose shadow above element has to be calculated.
+   * @param bottom      bottom coordinate of element whose shadow above element
+   *                    has to be calculated.
+   * @param visualLeft  visual left coordinate of element whose shadow above
+   *                    element has to be
+   *                    calculated.
+   * @param visualRight visual right coordinate of element whose shadow above
+   *                    element has to be
+   *                    calculated.
+   * @param left        left coordinate of element whose shadow above element has
+   *                    to be calculated.
+   * @param right       right coordinate of element whose shadow above element has
+   *                    to be calculated.
    * @return shadow above element
    */
   private Element findShadowedAboveElement(double bottom, double visualLeft, double visualRight,
@@ -2085,13 +2158,18 @@ public class PositionalTextGroupingTransformer implements Transformer<Document, 
   /**
    * Find shadow below element
    *
-   * @param top top coordinate of element whose shadow below element has to be calculated.
-   * @param visualLeft visual left coordinate of element whose shadow below element has to be
-   * calculated.
-   * @param visualRight visual right coordinate of element whose shadow below element has to be
-   * calculated.
-   * @param left left coordinate of element whose shadow below element has to be calculated.
-   * @param right right coordinate of element whose shadow below element has to be calculated.
+   * @param top         top coordinate of element whose shadow below element has
+   *                    to be calculated.
+   * @param visualLeft  visual left coordinate of element whose shadow below
+   *                    element has to be
+   *                    calculated.
+   * @param visualRight visual right coordinate of element whose shadow below
+   *                    element has to be
+   *                    calculated.
+   * @param left        left coordinate of element whose shadow below element has
+   *                    to be calculated.
+   * @param right       right coordinate of element whose shadow below element has
+   *                    to be calculated.
    * @return shadow below element
    */
   private Element findShadowedBelowElement(double top, double visualLeft, double visualRight,
@@ -2111,9 +2189,12 @@ public class PositionalTextGroupingTransformer implements Transformer<Document, 
   /**
    * Find shadow left element
    *
-   * @param top top coordinate of element whose shadow left element has to be calculated.
-   * @param bottom bottom coordinate of element whose shadow left element has to be calculated.
-   * @param left left coordinate of element whose shadow left element has to be calculated.
+   * @param top    top coordinate of element whose shadow left element has to be
+   *               calculated.
+   * @param bottom bottom coordinate of element whose shadow left element has to
+   *               be calculated.
+   * @param left   left coordinate of element whose shadow left element has to be
+   *               calculated.
    * @return shadow left element
    */
   private Element findShadowLeftElement(double top, double bottom, double left) {
@@ -2125,16 +2206,19 @@ public class PositionalTextGroupingTransformer implements Transformer<Document, 
         Height.class,
         top,
         bottom,
-        (prevToPrevElement, prevElement, element) ->
-            PositionalElementList.compareByVerticalAlignment(prevElement, element) == 0);
+        (prevToPrevElement, prevElement,
+            element) -> PositionalElementList.compareByVerticalAlignment(prevElement, element) == 0);
   }
 
   /**
    * Find shadow right element
    *
-   * @param top top coordinate of element whose shadow right element has to be calculated.
-   * @param bottom bottom coordinate of element whose shadow right element has to be calculated.
-   * @param right right coordinate of element whose shadow right element has to be calculated.
+   * @param top    top coordinate of element whose shadow right element has to be
+   *               calculated.
+   * @param bottom bottom coordinate of element whose shadow right element has to
+   *               be calculated.
+   * @param right  right coordinate of element whose shadow right element has to
+   *               be calculated.
    * @return shadow right element
    */
   private Element findShadowRightElement(double top, double bottom, double right) {
@@ -2146,28 +2230,35 @@ public class PositionalTextGroupingTransformer implements Transformer<Document, 
         Height.class,
         top,
         bottom,
-        (prevToPrevElement, prevElement, element) ->
-            PositionalElementList.compareByVerticalAlignment(prevElement, element) == 0);
+        (prevToPrevElement, prevElement,
+            element) -> PositionalElementList.compareByVerticalAlignment(prevElement, element) == 0);
   }
 
   /**
-   * Get the elements after applying the query constructed using {@code axisCondition} and {@code
-   * otherCondition} on boxed elements. Find the element from above list which intersects most with
-   * the range [{@code elemOtherAttrStartValue}, {@code elemOtherAttrEndValue}]. In above iteration,
-   * current element range is calculated by retrieving values corresponding to attributes {@code
+   * Get the elements after applying the query constructed using
+   * {@code axisCondition} and {@code
+   * otherCondition} on boxed elements. Find the element from above list which
+   * intersects most with
+   * the range [{@code elemOtherAttrStartValue}, {@code elemOtherAttrEndValue}].
+   * In above iteration,
+   * current element range is calculated by retrieving values corresponding to
+   * attributes {@code
    * otherStartAttrClass} and {@code otherStretchAttrClass}
    *
-   * @param axisCondition query on 1 dimensional axis
-   * @param otherCondition query on range (2D)
-   * @param elementOrdering option to order the retrieve elements
-   * @param otherStartAttrClass attribute used to calculate starting value. This value will be used
-   * to calculate range for element
-   * @param otherStretchAttrClass attribute used to calculate stretch. Thus value will be used to
-   * calculate range for element
+   * @param axisCondition           query on 1 dimensional axis
+   * @param otherCondition          query on range (2D)
+   * @param elementOrdering         option to order the retrieve elements
+   * @param otherStartAttrClass     attribute used to calculate starting value.
+   *                                This value will be used
+   *                                to calculate range for element
+   * @param otherStretchAttrClass   attribute used to calculate stretch. Thus
+   *                                value will be used to
+   *                                calculate range for element
    * @param elemOtherAttrStartValue starting point of range query
-   * @param elemOtherAttrEndValue end point of range query
-   * @param isElementLineNotCrossed predicate to check if element is eligible to become shadow
-   * element
+   * @param elemOtherAttrEndValue   end point of range query
+   * @param isElementLineNotCrossed predicate to check if element is eligible to
+   *                                become shadow
+   *                                element
    * @return most intersected shadow element
    */
   private Element findMostIntersectingShadowElement(
@@ -2193,11 +2284,11 @@ public class PositionalTextGroupingTransformer implements Transformer<Document, 
       if (prevResultElement == null || isElementLineNotCrossed
           .value(prevToPrevElement, prevResultElement, resultElement)) {
         double resultOtherStart = resultElement.getAttribute(otherStartAttrClass).getMagnitude();
-        double resultOtherEnd =
-            resultOtherStart + resultElement.getAttribute(otherStretchAttrClass).getMagnitude();
+        double resultOtherEnd = resultOtherStart + resultElement.getAttribute(otherStretchAttrClass).getMagnitude();
         double currIntersectionScore = Math.max(
             Math.min(elemOtherAttrEndValue, resultOtherEnd) - Math
-                .max(elemOtherAttrStartValue, resultOtherStart), 0);
+                .max(elemOtherAttrStartValue, resultOtherStart),
+            0);
 
         if (currIntersectionScore > intersectionScore) {
           intersectionScore = currIntersectionScore;
@@ -2213,27 +2304,36 @@ public class PositionalTextGroupingTransformer implements Transformer<Document, 
   }
 
   /**
-   * Find vertical group for the {@code elem}. Shadow below elements is being included in vertical
-   * group until the any of the condition is broken: <ol> <li>Distance between the border and
-   * current element is less than BORDER_LINE_ADJUST_EPSILON if there a border between the
-   * elements</li> <li>Distance between the below and current element is less than
-   * this.maxLineHeightAndDistanceFactor * height of current element</li> <li>Absolute((Ratio of
-   * height of below element and current element)-1) is less than MAX_LINE_HEIGHT_VARIANCE</li>
-   * <li>Absolute((Ratio of line distance and previous line distance)-1) is less than
-   * MAX_LINE_DISTANCE_VARIANCE</li> <li>nextGroup element is directly below previous group element
-   * and is not intersecting with any of left/right shadow element of previous group (and vice
-   * versa)</li> </ol>
+   * Find vertical group for the {@code elem}. Shadow below elements is being
+   * included in vertical
+   * group until the any of the condition is broken:
+   * <ol>
+   * <li>Distance between the border and
+   * current element is less than BORDER_LINE_ADJUST_EPSILON if there a border
+   * between the
+   * elements</li>
+   * <li>Distance between the below and current element is less than
+   * this.maxLineHeightAndDistanceFactor * height of current element</li>
+   * <li>Absolute((Ratio of
+   * height of below element and current element)-1) is less than
+   * MAX_LINE_HEIGHT_VARIANCE</li>
+   * <li>Absolute((Ratio of line distance and previous line distance)-1) is less
+   * than
+   * MAX_LINE_DISTANCE_VARIANCE</li>
+   * <li>nextGroup element is directly below previous group element
+   * and is not intersecting with any of left/right shadow element of previous
+   * group (and vice
+   * versa)</li>
+   * </ol>
    *
    * @param elem element whose vertical group has to be found.
    */
   private void findVerticalGroup(Element elem) {
     PositionalContext<Element> prevElemPositionalContext = elem.getPositionalContext();
     double prevGroupElementHeight = elem.getAttribute(Height.class).getMagnitude();
-    double prevGroupElementBottom =
-        elem.getAttribute(Top.class).getMagnitude() + prevGroupElementHeight;
+    double prevGroupElementBottom = elem.getAttribute(Top.class).getMagnitude() + prevGroupElementHeight;
     double prevGroupElementLeft = elem.getAttribute(Left.class).getMagnitude();
-    double prevGroupElementRight =
-        prevGroupElementLeft + elem.getAttribute(Width.class).getMagnitude();
+    double prevGroupElementRight = prevGroupElementLeft + elem.getAttribute(Width.class).getMagnitude();
     ElementGroup<Element> verticalGroup = new ElementGroup<>();
     verticalGroup.add(elem);
     double prevLineDistance = -1;
@@ -2245,21 +2345,49 @@ public class PositionalTextGroupingTransformer implements Transformer<Document, 
           .getPositionalContext();
       if (nextElemPositionalContext.getVerticalGroup() != null
           || nextElemPositionalContext.isVisualTopBorder()
-          && (!this.detectUnderline
-          || nextElemPositionalContext.getVisualTop() - prevGroupElementBottom
-          > BORDER_LINE_ADJUST_EPSILON)) {
+              && (!this.detectUnderline
+                  || nextElemPositionalContext.getVisualTop() - prevGroupElementBottom > BORDER_LINE_ADJUST_EPSILON)) {
         break;
       }
       double nextGroupElementLeft = nextGroupElement.getAttribute(Left.class).getMagnitude();
-      double nextGroupElementRight =
-          nextGroupElementLeft + nextGroupElement.getAttribute(Width.class).getMagnitude();
+      double nextGroupElementRight = nextGroupElementLeft + nextGroupElement.getAttribute(Width.class).getMagnitude();
       if (Math.min(prevGroupElementRight, nextGroupElementRight) > Math
           .max(prevGroupElementLeft, nextGroupElementLeft)) {
         double nextGroupElementTop = nextGroupElement.getAttribute(Top.class).getMagnitude();
         double nextGroupElementHeight = nextGroupElement.getAttribute(Height.class).getMagnitude();
         double lineDistance = nextGroupElementTop - prevGroupElementBottom;
-        if (Math.abs(nextGroupElementHeight / prevGroupElementHeight - 1)
-            > MAX_LINE_HEIGHT_VARIANCE) {
+
+        // TOC Heuristic: Prevent merging if lines look like Table of Contents entries
+        // (contain leader dots)
+        // If either line contains "....", treat them as separate paragraphs to preserve
+        // alignment
+        String prevText = verticalGroup.getElements().getLast().getTextStr();
+        String nextText = nextGroupElement.getTextStr();
+        if (prevText.contains("....") || nextText.contains("....")) {
+          break;
+        }
+
+        // Prevent merging if both elements appear to be distinct right-aligned headers
+        // Condition: Both have large Left margin (> 40% page width) AND are visually
+        // aligned on the right
+        if (this.pageWidth > 0) {
+          boolean isPrevRightAligned = prevGroupElementLeft > this.pageWidth * 0.4;
+          boolean isNextRightAligned = nextGroupElementLeft > this.pageWidth * 0.4;
+          boolean areRightAligned = Math.abs(prevGroupElementRight - nextGroupElementRight) < 20.0; // 20pt tolerance
+
+          if (isPrevRightAligned && isNextRightAligned && areRightAligned) {
+            // If they are right aligned but have vertical distance roughly equal to line
+            // height,
+            // it COULD be a paragraph. But header lines often have slightly larger or
+            // irregular spacing
+            // or just looked separate in the doc.
+            // User heuristic: "Right aligned and large left whitespace -> separate".
+            // We break here to keep them separate.
+            break;
+          }
+        }
+
+        if (Math.abs(nextGroupElementHeight / prevGroupElementHeight - 1) > MAX_LINE_HEIGHT_VARIANCE) {
           break;
         }
         if (verticalGroup.size() == 1) {
@@ -2275,14 +2403,18 @@ public class PositionalTextGroupingTransformer implements Transformer<Document, 
           }
         }
 
-        // Extend the vertical group only if they nextGroup element is directly below previous group element
-        // and is not intersecting with any of left/right shadow element of previous group (and vice versa).
+        // Extend the vertical group only if they nextGroup element is directly below
+        // previous group element
+        // and is not intersecting with any of left/right shadow element of previous
+        // group (and vice versa).
         if (isHorizontallyIntersecting(prevElemPositionalContext.getShadowedLeftElement(),
             nextGroupElementLeft, nextGroupElementRight) ||
             isHorizontallyIntersecting(prevElemPositionalContext.getShadowedRightElement(),
-                nextGroupElementLeft, nextGroupElementRight) ||
+                nextGroupElementLeft, nextGroupElementRight)
+            ||
             isHorizontallyIntersecting(nextElemPositionalContext.getShadowedLeftElement(),
-                prevGroupElementLeft, prevGroupElementRight) ||
+                prevGroupElementLeft, prevGroupElementRight)
+            ||
             isHorizontallyIntersecting(nextElemPositionalContext.getShadowedRightElement(),
                 prevGroupElementLeft, prevGroupElementRight)) {
           break;
@@ -2309,7 +2441,8 @@ public class PositionalTextGroupingTransformer implements Transformer<Document, 
   }
 
   /**
-   * Find alignment group of {@code elem} and update the alignment of each element in its positional
+   * Find alignment group of {@code elem} and update the alignment of each element
+   * in its positional
    * context of that group
    *
    * @param elem Element whose alignment group is to be found
@@ -2345,12 +2478,14 @@ public class PositionalTextGroupingTransformer implements Transformer<Document, 
       double nextGroupElementCentre = nextGroupElementLeft + nextGroupElementWidth / 2;
 
       // If nextGroupElement left/right/center is aligned with element and
-      // previous element is not separated from current element by large vertical distance,
+      // previous element is not separated from current element by large vertical
+      // distance,
       // then add the current element to alignmentGroup list.
       if (nextGroupElementLeft > left - ALIGNMENT_EPSILON
           && nextGroupElementLeft < left + ALIGNMENT_EPSILON ||
           nextGroupElementRight > right - ALIGNMENT_EPSILON
-              && nextGroupElementRight < right + ALIGNMENT_EPSILON ||
+              && nextGroupElementRight < right + ALIGNMENT_EPSILON
+          ||
           nextGroupElementCentre > centre - ALIGNMENT_EPSILON
               && nextGroupElementCentre < centre + ALIGNMENT_EPSILON) {
         double nextGroupElementTop = nextGroupElement.getAttribute(Top.class).getMagnitude();
@@ -2369,12 +2504,10 @@ public class PositionalTextGroupingTransformer implements Transformer<Document, 
 
     // For each element in alignmentGroups, update alignments in positional content
     if (alignmentGroup.size() > 1) {
-      double alignmentLeft =
-          alignmentGroup.collect(e -> e.getAttribute(Left.class).getMagnitude()).min()
-              - SEPARATION_EPSILON;
-      double alignmentRight =
-          alignmentGroup.collect(e -> e.getAttribute(Left.class).getMagnitude() +
-              e.getAttribute(Width.class).getMagnitude()).max() + SEPARATION_EPSILON;
+      double alignmentLeft = alignmentGroup.collect(e -> e.getAttribute(Left.class).getMagnitude()).min()
+          - SEPARATION_EPSILON;
+      double alignmentRight = alignmentGroup.collect(e -> e.getAttribute(Left.class).getMagnitude() +
+          e.getAttribute(Width.class).getMagnitude()).max() + SEPARATION_EPSILON;
       for (Element alignmentGroupElem : alignmentGroup) {
         PositionalContext<Element> positionalContext = alignmentGroupElem.getPositionalContext();
         positionalContext.setAlignmentLeft(alignmentLeft);
@@ -2388,10 +2521,10 @@ public class PositionalTextGroupingTransformer implements Transformer<Document, 
    */
   private static final class Column {
 
-    private final MutableList<Element> elements;  // Elements within column
-    private final int direction;                           // direction to proceed for finding next column from this column
-    private final double boundary;                  // Bottom y'th coordinate of (column + column noise)
-    private final double bottom;                      // Bottom y'th coordinate of column
+    private final MutableList<Element> elements; // Elements within column
+    private final int direction; // direction to proceed for finding next column from this column
+    private final double boundary; // Bottom y'th coordinate of (column + column noise)
+    private final double bottom; // Bottom y'th coordinate of column
 
     Column(MutableList<Element> elements, int direction, double boundary, double bottom) {
       this.elements = elements;

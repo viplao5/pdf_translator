@@ -103,7 +103,6 @@ import org.eclipse.collections.impl.utility.Iterate;
 import org.eclipse.collections.impl.utility.ListIterate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import sun.reflect.generics.reflectiveObjects.NotImplementedException;
 
 public class PhraseExtractor {
 
@@ -120,31 +119,30 @@ public class PhraseExtractor {
   private static final int INTERNAL_ERROR = 3;
   private static final int SCANNED_OR_BROKEN_PDF_ERROR = 4;
   private static final int BAD_TEXT_SEGMENTATION_ERROR = 5;
-  private static final String DOC =
-      "java -cp path/to/docknight.jar com.gs.ep.docknight.model.extractor.PhraseExtractor\n"
-          + "\n"
-          + "Usage:\n"
-          + "  PhraseExtractor [--no-recurse] [--timeout=SEC] [--ignore-overlay] [--tesseract] [--abbyy] [--mixed-layout] [--html] [--min-chars=CNT] [--hand-written] [--page-level-ocr] [--customizations-path=<path>] [--enable-statsd] [--statsd-tags=<tags>] [--statsd-host=<host>] [--statsd-port=<port>] [--statsd-prefix=<prefix>] <input-path> <output-path>\n"
-          + "\n"
-          + "Options:\n"
-          + "  -h --help                     Show this screen.\n"
-          + "  --no-recurse                  Don't run recursively on the input_path, if it is a directory.\n"
-          + "  --timeout=SEC                 Timeout per document in seconds [default: 300].\n"
-          + "  --ignore-overlay              Ignore text overlayed on image.\n"
-          + "  --tesseract                   Enable tesseract based OCR, if normal processing fails.\n"
-          + "  --abbyy                       Enable abbyy based OCR, if normal processing fails.\n"
-          + "  --mixed-layout                Process mixed layouts.\n"
-          + "  --html                        Generate html as well for debugging.\n"
-          + "  --min-chars=CNT               Minimum number of parsed chars document should have [default: 0].\n"
-          + "  --hand-written                Detect hand written areas in the document.\n"
-          + "  --page-level-ocr              Run ocr if some pages are scanned.\n"
-          + "  --customizations-path=<path>  Use customizations on this path in transformers [default: ].\n"
-          + "  --enable-statsd               Publish the metrics to statsD server.\n"
-          + "  --statsd-tags=<tags>          Set the tags. These will be associated with metric sent to statsD. [default: ].\n"
-          + "  --statsd-host=<host>          Host where the metrics will be sent [default: ].\n"
-          + "  --statsd-port=<port>          Port on the host where the metrics will be sent [default: -1].\n"
-          + "  --statsd-prefix=<prefix>      Name which will be used as prefix in all statsd metric names. [default: ].\n"
-          + "\n";
+  private static final String DOC = "java -cp path/to/docknight.jar com.gs.ep.docknight.model.extractor.PhraseExtractor\n"
+      + "\n"
+      + "Usage:\n"
+      + "  PhraseExtractor [--no-recurse] [--timeout=SEC] [--ignore-overlay] [--tesseract] [--abbyy] [--mixed-layout] [--html] [--min-chars=CNT] [--hand-written] [--page-level-ocr] [--customizations-path=<path>] [--enable-statsd] [--statsd-tags=<tags>] [--statsd-host=<host>] [--statsd-port=<port>] [--statsd-prefix=<prefix>] <input-path> <output-path>\n"
+      + "\n"
+      + "Options:\n"
+      + "  -h --help                     Show this screen.\n"
+      + "  --no-recurse                  Don't run recursively on the input_path, if it is a directory.\n"
+      + "  --timeout=SEC                 Timeout per document in seconds [default: 300].\n"
+      + "  --ignore-overlay              Ignore text overlayed on image.\n"
+      + "  --tesseract                   Enable tesseract based OCR, if normal processing fails.\n"
+      + "  --abbyy                       Enable abbyy based OCR, if normal processing fails.\n"
+      + "  --mixed-layout                Process mixed layouts.\n"
+      + "  --html                        Generate html as well for debugging.\n"
+      + "  --min-chars=CNT               Minimum number of parsed chars document should have [default: 0].\n"
+      + "  --hand-written                Detect hand written areas in the document.\n"
+      + "  --page-level-ocr              Run ocr if some pages are scanned.\n"
+      + "  --customizations-path=<path>  Use customizations on this path in transformers [default: ].\n"
+      + "  --enable-statsd               Publish the metrics to statsD server.\n"
+      + "  --statsd-tags=<tags>          Set the tags. These will be associated with metric sent to statsD. [default: ].\n"
+      + "  --statsd-host=<host>          Host where the metrics will be sent [default: ].\n"
+      + "  --statsd-port=<port>          Port on the host where the metrics will be sent [default: -1].\n"
+      + "  --statsd-prefix=<prefix>      Name which will be used as prefix in all statsd metric names. [default: ].\n"
+      + "\n";
   private static String version;
   private static ScannedPdfParser scannedPdfParser;
   private static boolean isScannedPdfParserInitialized;
@@ -164,17 +162,18 @@ public class PhraseExtractor {
   }
 
   /**
-   * Start new group if there is a group change, start new line if there is a line change and create
-   * segments corresponding to its alternate representation of elements. Group change and line
+   * Start new group if there is a group change, start new line if there is a line
+   * change and create
+   * segments corresponding to its alternate representation of elements. Group
+   * change and line
    * change is decided using {@code paragraphSpaceFactor}
    */
   private static void addSegment(VisualJsonBuilder builder, Element element, Element prevElement,
       double paragraphSpaceFactor) {
     boolean isLineChange = prevElement == null
         || PositionalElementList.compareByHorizontalAlignment(prevElement, element) != 0;
-    boolean isGroupChange =
-        prevElement == null || isLineChange && isParaChange(element, prevElement,
-            paragraphSpaceFactor);
+    boolean isGroupChange = prevElement == null || isLineChange && isParaChange(element, prevElement,
+        paragraphSpaceFactor);
     PagePartitionType partitionType = element.getPositionalContext().getPagePartitionType();
     String groupName = partitionType == PagePartitionType.HEADER ? "headerGroups"
         : partitionType == PagePartitionType.FOOTER ? "footerGroups" : "groups";
@@ -195,15 +194,19 @@ public class PhraseExtractor {
   /**
    * Add the new segment in visual json.
    *
-   * @param builder Visual json builder
-   * @param element alternate representation element at index {@code index} for element {@code
+   * @param builder      Visual json builder
+   * @param element      alternate representation element at index {@code index}
+   *                     for element {@code
    * parent}
-   * @param leftSibling alternate representation element at index {@code index}-1 for element {@code
+   * @param leftSibling  alternate representation element at index {@code index}-1
+   *                     for element {@code
    * parent}
-   * @param rightSibling alternate representation element at index {@code index}+1 for element
-   * {@code parent}
-   * @param parent element whose segments we are adding to visual json
-   * @param index represent position of segment in alternate representation list of element {@code
+   * @param rightSibling alternate representation element at index {@code index}+1
+   *                     for element
+   *                     {@code parent}
+   * @param parent       element whose segments we are adding to visual json
+   * @param index        represent position of segment in alternate representation
+   *                     list of element {@code
    * parent}
    */
   public static void addSegment(VisualJsonBuilder builder, Element element, Element leftSibling,
@@ -253,7 +256,8 @@ public class PhraseExtractor {
   }
 
   /**
-   * @return mid point (x coordinate between the elements {@code elem1} and {@code elem2}
+   * @return mid point (x coordinate between the elements {@code elem1} and
+   *         {@code elem2}
    */
   private static double getMid(Element elem1, Element elem2) {
     return (elem1.getAttribute(Left.class).getMagnitude() + elem1.getAttribute(Width.class)
@@ -264,9 +268,9 @@ public class PhraseExtractor {
   /**
    * Get the item at {@code index} from the {@code list}
    *
-   * @param list list from where the item is to be retrieved
+   * @param list  list from where the item is to be retrieved
    * @param index position of item in the {@code list}
-   * @param <K> type of item in the list
+   * @param <K>   type of item in the list
    * @return item if index is less than list size, else null
    */
   public static <K> K getOrNull(List<K> list, int index) {
@@ -274,10 +278,12 @@ public class PhraseExtractor {
   }
 
   /**
-   * Generate the segment id. Algo: segment id = the position of {@element} among its siblings + "_"
+   * Generate the segment id. Algo: segment id = the position of {@element} among
+   * its siblings + "_"
    * + {@code index}
    *
-   * @param index position of segment in alternate representation list of element {@code parent}
+   * @param index position of segment in alternate representation list of element
+   *              {@code parent}
    * @return the segment id for the element
    */
   private static String segmentId(Element element, int index) {
@@ -306,7 +312,8 @@ public class PhraseExtractor {
   }
 
   /**
-   * Format the {@code value} such that it has only 2 decimal places. Example: 2.134 -> 2.13, 2.1 ->
+   * Format the {@code value} such that it has only 2 decimal places. Example:
+   * 2.134 -> 2.13, 2.1 ->
    * 2.10
    *
    * @param value value which is to be formatted
@@ -320,8 +327,9 @@ public class PhraseExtractor {
    * Get borders assuming underline is not part of border.
    *
    * @param context positional context of element
-   * @return boolean flag indicating whether the element has border or not in left, right, top and
-   * bottom direction.
+   * @return boolean flag indicating whether the element has border or not in
+   *         left, right, top and
+   *         bottom direction.
    */
   private static Map<String, Boolean> getBordersIndependentOfUnderline(
       PositionalContext<Element> context) {
@@ -329,24 +337,23 @@ public class PhraseExtractor {
     boolean hasRight = context.isVisualRightBorder();
     boolean hasBottom = context.isVisualBottomBorder()
         && Math.abs(context.getSelf().getAttribute(Top.class).getMagnitude()
-        + context.getSelf().getAttribute(Height.class).getMagnitude() - context.getVisualBottom())
-        > 2;
+            + context.getSelf().getAttribute(Height.class).getMagnitude() - context.getVisualBottom()) > 2;
     boolean hasTop = context.isVisualTopBorder() && (context.getShadowedAboveElement() == null
         || Math.abs(context.getShadowedAboveElement().getAttribute(Top.class).getMagnitude()
-        + context.getShadowedAboveElement().getAttribute(Height.class).getMagnitude() - context
-        .getVisualTop()) > 2);
+            + context.getShadowedAboveElement().getAttribute(Height.class).getMagnitude() - context
+                .getVisualTop()) > 2);
     return Maps.mutable.of("left", hasLeft, "top", hasTop, "right", hasRight, "bottom", hasBottom);
   }
 
   /**
-   * @return True if element and prevElement present in different paragraphs, otherwise return False
+   * @return True if element and prevElement present in different paragraphs,
+   *         otherwise return False
    */
   private static boolean isParaChange(Element element, Element prevElement,
       double paragraphSpaceFactor) {
     double lineHeight = prevElement.getAttribute(Height.class).getMagnitude();
-    double lineDistance =
-        element.getAttribute(Top.class).getMagnitude() - prevElement.getAttribute(Top.class)
-            .getMagnitude() - lineHeight;
+    double lineDistance = element.getAttribute(Top.class).getMagnitude() - prevElement.getAttribute(Top.class)
+        .getMagnitude() - lineHeight;
     return lineDistance > paragraphSpaceFactor * lineHeight;
   }
 
@@ -380,10 +387,11 @@ public class PhraseExtractor {
   }
 
   /**
-   * Generate {@see com.gs.ep.docknight.model.element.Document document model} from the document
+   * Generate {@see com.gs.ep.docknight.model.element.Document document model}
+   * from the document
    * stream {@code input} for the file {@code filename}
    *
-   * @param input document in stream
+   * @param input    document in stream
    * @param filename name of the document
    * @return document model
    */
@@ -393,22 +401,30 @@ public class PhraseExtractor {
   }
 
   /**
-   * Generate {@see com.gs.ep.docknight.model.element.Document document model} from the document
+   * Generate {@see com.gs.ep.docknight.model.element.Document document model}
+   * from the document
    * stream {@code input} for the file {@code filename}
    *
-   * @param input document in stream
-   * @param pageNosToOcr page number on which the scanned pdf parser will execute
-   * @param badPageSignaler // Consumer on how to handle pages which contain unrecognized glyphs
-   * @param widthByPage // Output variable to populate pageIndex and its width
-   * @param ocrEngine ocr engine for scanned pdf parser
+   * @param input                   document in stream
+   * @param pageNosToOcr            page number on which the scanned pdf parser
+   *                                will execute
+   * @param badPageSignaler         // Consumer on how to handle pages which
+   *                                contain unrecognized glyphs
+   * @param widthByPage             // Output variable to populate pageIndex and
+   *                                its width
+   * @param ocrEngine               ocr engine for scanned pdf parser
    * @param ignoreNonRenderableText boolean to ignore non renderable text
-   * @param minChars minimum characters present in document for visual vson creation
-   * @param handWritten boolean to detect hand written areas
-   * @param pageLevelOcr boolean to apply scanned pdf scanned only on scanned pages and not on whole
-   * document
-   * @param errorCode output variable to populate with appropriate error in case failure happens
-   * @param modelCustomizations customizations to adjust document parsing behaviour
-   * @param filename name of the document
+   * @param minChars                minimum characters present in document for
+   *                                visual vson creation
+   * @param handWritten             boolean to detect hand written areas
+   * @param pageLevelOcr            boolean to apply scanned pdf scanned only on
+   *                                scanned pages and not on whole
+   *                                document
+   * @param errorCode               output variable to populate with appropriate
+   *                                error in case failure happens
+   * @param modelCustomizations     customizations to adjust document parsing
+   *                                behaviour
+   * @param filename                name of the document
    * @return document model
    */
   public static Document parseDocument(InputStream input, List<Integer> pageNosToOcr,
@@ -475,19 +491,24 @@ public class PhraseExtractor {
   }
 
   /**
-   * Generate {@see com.gs.ep.docknight.model.element.Document document model} from the document
+   * Generate {@see com.gs.ep.docknight.model.element.Document document model}
+   * from the document
    * stream {@code input} for the file {@code filename}
    *
-   * @param input document in stream
-   * @param ocrEngine ocr engine for scanned pdf parser
+   * @param input                   document in stream
+   * @param ocrEngine               ocr engine for scanned pdf parser
    * @param ignoreNonRenderableText boolean to ignore non renderable text
-   * @param minChars minimum characters present in document for visual vson creation
-   * @param handWritten boolean to detect hand written areas
-   * @param pageLevelOcr boolean to apply scanned pdf scanned only on scanned pages and not on whole
-   * document
-   * @param errorCode output variable to populate with appropriate error in case failure happens
-   * @param modelCustomizations customizations to adjust document parsing behaviour
-   * @param filename name of the document
+   * @param minChars                minimum characters present in document for
+   *                                visual vson creation
+   * @param handWritten             boolean to detect hand written areas
+   * @param pageLevelOcr            boolean to apply scanned pdf scanned only on
+   *                                scanned pages and not on whole
+   *                                document
+   * @param errorCode               output variable to populate with appropriate
+   *                                error in case failure happens
+   * @param modelCustomizations     customizations to adjust document parsing
+   *                                behaviour
+   * @param filename                name of the document
    * @return document model
    */
   private static Document parseMixedLayoutDocument(InputStream input, OCREngine ocrEngine,
@@ -542,7 +563,8 @@ public class PhraseExtractor {
   /**
    * Getter to get scanned pdf parser
    *
-   * @param ocrEngine ocr engine to use for scanned pdf parser (Example: tesseract)
+   * @param ocrEngine ocr engine to use for scanned pdf parser (Example:
+   *                  tesseract)
    * @return scanned pdf parser
    */
   private static ScannedPdfParser getScannedPdfParser(OCREngine ocrEngine) {
@@ -564,14 +586,15 @@ public class PhraseExtractor {
   /**
    * Extract all pdf files from the {@code path}
    *
-   * @param path path to directory from where the pdf files have to be extracted
-   * @param lookupRecursively boolean to include files from nested directories also
+   * @param path              path to directory from where the pdf files have to
+   *                          be extracted
+   * @param lookupRecursively boolean to include files from nested directories
+   *                          also
    * @return list of pdf files
    */
   private static List<File> getPdfFiles(String path, boolean lookupRecursively) {
-    return new File(path).isDirectory() ?
-        Lists.mutable.ofAll(
-            FileUtils.listFiles(new File(path), new String[]{"pdf", "PDF"}, lookupRecursively))
+    return new File(path).isDirectory() ? Lists.mutable.ofAll(
+        FileUtils.listFiles(new File(path), new String[] { "pdf", "PDF" }, lookupRecursively))
         : Lists.mutable.of(new File(path));
   }
 
@@ -590,13 +613,15 @@ public class PhraseExtractor {
   }
 
   /**
-   * Create the outputfile with data {@code output}. If output file already exists, delete that
+   * Create the outputfile with data {@code output}. If output file already
+   * exists, delete that
    * file.
    *
-   * @param outputDir directory where the output file will be created
-   * @param inputFile file from which the filename will be taken for output file
+   * @param outputDir    directory where the output file will be created
+   * @param inputFile    file from which the filename will be taken for output
+   *                     file
    * @param outExtension This extension will be used as extension of output file
-   * @param output data that will be written in output file
+   * @param output       data that will be written in output file
    * @throws IOException exception to throw if file creation failed
    */
   private static void createOutputFile(File outputDir, File inputFile, String outExtension,
@@ -625,13 +650,15 @@ public class PhraseExtractor {
   }
 
   /**
-   * Create the outputfile with data {@code output}. If output file already exists, delete that
+   * Create the outputfile with data {@code output}. If output file already
+   * exists, delete that
    * file.
    *
-   * @param outputDir directory where the output file will be created
-   * @param inputFile file from which the filename will be taken for output file
+   * @param outputDir    directory where the output file will be created
+   * @param inputFile    file from which the filename will be taken for output
+   *                     file
    * @param outExtension This extension will be used as extension of output file
-   * @param output data that will be written in output file
+   * @param output       data that will be written in output file
    * @throws IOException exception to throw if file creation failed
    */
   protected static void createOutputFile(Path outputDir, File inputFile, String outExtension,
@@ -647,24 +674,33 @@ public class PhraseExtractor {
   }
 
   /**
-   * Generate visual json in {@code ouputPath} for all the documents in {@code inputPath}
+   * Generate visual json in {@code ouputPath} for all the documents in
+   * {@code inputPath}
    *
-   * @param inputPath path to directory containing documents
-   * @param outputPath path to directory where visual json will be generated
-   * @param lookupRecursively boolean indicating whether to look for documents in nested directories
-   * of {@code inputPath}
-   * @param timeoutInSecondsPerDocument Visual generation will stop for document if execution time
-   * exceeds this variable
-   * @param pageNosToOcr page number on which the scanned pdf parser will execute
-   * @param ocrEngine ocr engine for scanned pdf parser
-   * @param ignoreNonRenderableText boolean to ignore non renderable text
-   * @param mixedLayout boolean whether document contain both paragraphs and tables
-   * @param html boolean to generate html view of documents
-   * @param minChars minimum characters present in document for visual vson creation
-   * @param handWritten boolean to detect hand written areas
-   * @param pageLevelOcr boolean to apply scanned pdf scanned only on scanned pages and not on whole
-   * document
-   * @param modelCustomizations customizations to adjust document parsing behaviour
+   * @param inputPath                   path to directory containing documents
+   * @param outputPath                  path to directory where visual json will
+   *                                    be generated
+   * @param lookupRecursively           boolean indicating whether to look for
+   *                                    documents in nested directories
+   *                                    of {@code inputPath}
+   * @param timeoutInSecondsPerDocument Visual generation will stop for document
+   *                                    if execution time
+   *                                    exceeds this variable
+   * @param pageNosToOcr                page number on which the scanned pdf
+   *                                    parser will execute
+   * @param ocrEngine                   ocr engine for scanned pdf parser
+   * @param ignoreNonRenderableText     boolean to ignore non renderable text
+   * @param mixedLayout                 boolean whether document contain both
+   *                                    paragraphs and tables
+   * @param html                        boolean to generate html view of documents
+   * @param minChars                    minimum characters present in document for
+   *                                    visual vson creation
+   * @param handWritten                 boolean to detect hand written areas
+   * @param pageLevelOcr                boolean to apply scanned pdf scanned only
+   *                                    on scanned pages and not on whole
+   *                                    document
+   * @param modelCustomizations         customizations to adjust document parsing
+   *                                    behaviour
    */
   public static void extractFromMultipleFiles(String inputPath, String outputPath,
       boolean lookupRecursively,
@@ -686,8 +722,7 @@ public class PhraseExtractor {
       File outputDir = new File(outputPath, fileDirPath
           .substring(Math.min(inputPathLength + 1, fileDirPath.length()), fileDirPath.length()));
       execute(executor, timeoutInSecondsPerDocument, singleFile && ocrEngine == OCREngine.TESSERACT,
-          () ->
-          {
+          () -> {
             try {
               Document document;
               Map<String, Object> phrases;
@@ -740,7 +775,8 @@ public class PhraseExtractor {
                         .render(document, groupings));
                 byte[] pdfAbbyyBytes = ListIterate
                     .collectIf(document.getTransformedIntermediateSources(),
-                        x -> x.getOne() == SourceType.OCRED_DOC, Pair::getTwo).getFirst();
+                        x -> x.getOne() == SourceType.OCRED_DOC, Pair::getTwo)
+                    .getFirst();
                 createOutputFile(Paths.get(outputDir.getAbsolutePath(), "ocr"), f, "pdf",
                     pdfAbbyyBytes);
               }
@@ -757,7 +793,8 @@ public class PhraseExtractor {
   }
 
   /**
-   * Get the map with key as first integer in segment id and value as group id. Group id is
+   * Get the map with key as first integer in segment id and value as group id.
+   * Group id is
    * calculated by taking first integer in first segment of that group.
    *
    * @param phrases phrase representation of document model
@@ -785,11 +822,15 @@ public class PhraseExtractor {
   }
 
   /**
-   * Compute scannedness of each page within the document. <p>Scannedness of page is computed by sum
-   * of number of images that lies between two text elements / 20. </p> This number is bounded by
+   * Compute scannedness of each page within the document.
+   * <p>
+   * Scannedness of page is computed by sum
+   * of number of images that lies between two text elements / 20.
+   * </p>
+   * This number is bounded by
    * 0.5 so if scannedness > 0.5, then return 0.5
    *
-   * @param document document model from which to extract the pages
+   * @param document    document model from which to extract the pages
    * @param scannedness output variable to populate with scannedness of each page
    */
   public static void getDocumentScannedness(Document document,
@@ -805,7 +846,8 @@ public class PhraseExtractor {
       } else if (element instanceof TextElement) {
         if (prevImage != null && prevTextElement != null) {
           PositionalElementList<Element> elementList = element.getElementList();
-          // Increment intra text images page count if we encounter the image between two text elements
+          // Increment intra text images page count if we encounter the image between two
+          // text elements
           intraTextImages
               .compute(elementList.getPageBreakNumber(element), (k, v) -> v == null ? 1 : v + 1);
         }
@@ -828,7 +870,8 @@ public class PhraseExtractor {
    *
    * @param filePath path to file containing customizations
    * @return constructed customizations
-   * @throws IOException exception to throw in case file is not able to read properly
+   * @throws IOException exception to throw in case file is not able to read
+   *                     properly
    */
   protected static ModelCustomizations getModelCustomizationsFromFile(String filePath)
       throws IOException {
@@ -852,20 +895,20 @@ public class PhraseExtractor {
   public static void main(String[] args) {
     try {
       // inputs
-      String inputPath = "/home/harshgupta11/Downloads/not-scanned.pdf";
+      String inputPath = "/Users/mac/Documents/Develop/code/pdf_translator/src/main/resources/pdfs/with_background.pdf";
       String customizationsFilePath = "";
       boolean lookupRecursively = true;
-      String outputPath = "/home/harshgupta11/Downloads/temp";
+      String outputPath = "/Users/mac/Documents/Develop/code/pdf_translator/src/main/resources/pdfs/temp";
       int timeoutInSecondsPerDocument = 300;
       List<Integer> pageNosToOcr = Lists.mutable.of(); // zero based page indexes
-      OCREngine ocrEngine = null;  // set to OCREngine.TESSERACT or OCREngine.ABBYY or null
-      boolean ignoreNonRenderableText = false;  // set to true if you want to ignore any overlayed text in document
+      OCREngine ocrEngine = null; // set to OCREngine.TESSERACT or OCREngine.ABBYY or null
+      boolean ignoreNonRenderableText = false; // set to true if you want to ignore any overlayed text in document
       boolean mixedLayout = false; // set to true of you want to process mixed layout documents
-      boolean html = true; //set to true if you want to generate html as well for debugging
-      int minChars = 0;  // set the min number of parsed chars pdf should have
+      boolean html = true; // set to true if you want to generate html as well for debugging
+      int minChars = 0; // set the min number of parsed chars pdf should have
       boolean handWritten = false; // detect hand written areas
       boolean pageLevelOcr = false; // run ocr on page level
-      boolean isStatsDEnabled = false;  // publish metric to statsd server
+      boolean isStatsDEnabled = false; // publish metric to statsd server
       String statsDHost = "";
       String statsDPrefix = "";
       int statsDPort = -1;
@@ -888,7 +931,7 @@ public class PhraseExtractor {
           handWritten = (Boolean) opts.get("--hand-written");
           pageLevelOcr = (Boolean) opts.get("--page-level-ocr");
           isStatsDEnabled = (Boolean) opts.get("--enable-statsd");
-          statsDTags = ArrayAdapter.adapt(((String)opts.get("--statsd-tags")).trim()
+          statsDTags = ArrayAdapter.adapt(((String) opts.get("--statsd-tags")).trim()
               .replaceAll("(^\\[)|(\\]$)", "").split(",")).toList()
               .reject(String::isEmpty);
           statsDPrefix = (String) opts.get("--statsd-prefix");
@@ -916,7 +959,7 @@ public class PhraseExtractor {
           ocrEngine, ignoreNonRenderableText, mixedLayout, html, minChars, handWritten,
           pageLevelOcr, modelCustomizations);
 
-      if(isStatsDConfigured){
+      if (isStatsDConfigured) {
         StatsDClientWrapper.closeClient();
       }
     } catch (Throwable e) {
@@ -938,7 +981,8 @@ public class PhraseExtractor {
   /**
    * Create the phrase map representation for {@code document}
    *
-   * @param document document model for which to create phrase map representation
+   * @param document    document model for which to create phrase map
+   *                    representation
    * @param scannedness map containing scannedness of each page
    * @param widthByPage map with key page index to page width
    * @return phrase map representation
@@ -951,8 +995,9 @@ public class PhraseExtractor {
   /**
    * Create the phrase map representation for {@code document}
    *
-   * @param document document model for which to create phrase map representation
-   * @param isVGOrder boolean flag to process elements in vertical group order
+   * @param document    document model for which to create phrase map
+   *                    representation
+   * @param isVGOrder   boolean flag to process elements in vertical group order
    * @param scannedness map containing scannedness of each page
    * @param widthByPage map with key page index to page width
    * @return phrase map representation
@@ -1021,8 +1066,9 @@ public class PhraseExtractor {
   }
 
   /**
-   * @return all terminal elements in {@code document} structure hierarchy along with null element
-   * at the end.
+   * @return all terminal elements in {@code document} structure hierarchy along
+   *         with null element
+   *         at the end.
    */
   private Iterable<Element> getTerminalElemIteratorEndingWithNull(Document document) {
     return IterableUtils.chainedIterable(document.getContainingElements(Element::isTerminal),
@@ -1041,17 +1087,19 @@ public class PhraseExtractor {
   }
 
   /**
-   * Check if the page is in a single column layout. Algo: Page is single column if average max gap
-   * of line is less than <0.2 and shifted lines are not more than or equal to 40% of lines
+   * Check if the page is in a single column layout. Algo: Page is single column
+   * if average max gap
+   * of line is less than <0.2 and shifted lines are not more than or equal to 40%
+   * of lines
    *
-   * @param elements Element in the page
-   * @param pageTop yth coordinate of page top
+   * @param elements   Element in the page
+   * @param pageTop    yth coordinate of page top
    * @param pageBottom yth coordinate of page bottom
    * @return True if the page is single column layout otherwise return False
    */
   private boolean isSingleColLayout(List<Element> elements, double pageTop, double pageBottom) {
     double gapCount = 0; // sum of maximum gap between words in each line
-    double shiftedLineCount = 0;  // Number of lines where left margin > 150pts
+    double shiftedLineCount = 0; // Number of lines where left margin > 150pts
     int lineCount = 0; // Numbers of lines
     double lineGapCount = 0; // Maximum gap between words
     Element prevElement = null;
@@ -1109,7 +1157,7 @@ public class PhraseExtractor {
   /**
    * Populate visual json for {@code elements} as it is appearing in the document
    *
-   * @param builder visual json builder
+   * @param builder  visual json builder
    * @param elements elements in the page
    */
   private void processInAppearanceOrder(VisualJsonBuilder builder, List<Element> elements) {
@@ -1158,9 +1206,8 @@ public class PhraseExtractor {
         }
         boolean isLineChange = prevElement == null
             || PositionalElementList.compareByHorizontalAlignment(prevElement, element) != 0;
-        boolean isGroupChange =
-            prevElement == null || isLineChange && isParaChange(element, prevElement,
-                paragraphSpaceFactor);
+        boolean isGroupChange = prevElement == null || isLineChange && isParaChange(element, prevElement,
+            paragraphSpaceFactor);
         if (isLineChange) {
           lineCount += 1;
         }
@@ -1195,7 +1242,7 @@ public class PhraseExtractor {
     List<List<Element>> linesInVG = Lists.mutable.empty();
     List<Element> line = Lists.mutable.empty();
     Element prevElem = null;
-    //This element here is a TextElement
+    // This element here is a TextElement
     for (Element elem : vg.getElements()) {
       if (prevElem != null
           && PositionalElementList.compareByHorizontalAlignment(prevElem, elem) != 0) {
@@ -1210,7 +1257,8 @@ public class PhraseExtractor {
   }
 
   /**
-   * Enum representing extension. The enum contains method to get appropriate parsed based on
+   * Enum representing extension. The enum contains method to get appropriate
+   * parsed based on
    * extension.
    */
   public enum FileParserDecoder {
@@ -1219,7 +1267,8 @@ public class PhraseExtractor {
       public Parser getParser(ModelCustomizations modelCustomizations) {
         PdfParser pdfParser = new PdfParser();
         ParserSettings pdfParserSettings = pdfParser.getParserSettings();
-        // make sure to attach the scanned pdf parser for all cases, unless explicitly disabled
+        // make sure to attach the scanned pdf parser for all cases, unless explicitly
+        // disabled
         OCREngine ocrEngine = modelCustomizations
             .retrieveOrDefault(ModelCustomizationKey.OCR_ENGINE, null);
         pdfParser.withScannedPdfParser(getScannedPdfParser(ocrEngine))
@@ -1270,27 +1319,27 @@ public class PhraseExtractor {
     html(Lists.mutable.of(HTML, HTM)) {
       @Override
       public Parser getParser(ModelCustomizations modelCustomizations) {
-        throw new NotImplementedException();
+        throw new UnsupportedOperationException();
       }
     },
     xlsx(Lists.mutable.of(XLSX, XLS)) {
       @Override
       public Parser getParser(ModelCustomizations modelCustomizations) {
-        throw new NotImplementedException();
+        throw new UnsupportedOperationException();
 
       }
     },
     txt(Lists.mutable.of(TXT)) {
       @Override
       public Parser getParser(ModelCustomizations modelCustomizations) {
-        throw new NotImplementedException();
+        throw new UnsupportedOperationException();
 
       }
     },
     docx(Lists.mutable.of(DOCX)) {
       @Override
       public Parser getParser(ModelCustomizations modelCustomizations) {
-        throw new NotImplementedException();
+        throw new UnsupportedOperationException();
 
       }
     };
@@ -1304,7 +1353,7 @@ public class PhraseExtractor {
     /**
      * Parse the document with stream {@code inputStream} and file {@code filename}
      *
-     * @param fileName name of the file which is to be parsed
+     * @param fileName    name of the file which is to be parsed
      * @param inputStream document stream which is to be parsed
      * @return document model
      * @throws Exception exception to throw in case extension of file is invalid
@@ -1345,7 +1394,7 @@ public class PhraseExtractor {
      * Parse the document with stream {@code inputStream} and file {@code filename}
      *
      * @param modelCustomizations customizations to adjust parser's behaviour
-     * @param inputStream document stream which is to be parsed
+     * @param inputStream         document stream which is to be parsed
      * @return document model
      * @throws Exception exception to throw in case extension of file is invalid
      */
