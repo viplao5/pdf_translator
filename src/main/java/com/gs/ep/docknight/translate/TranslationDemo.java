@@ -29,7 +29,13 @@ public class TranslationDemo {
 //        String filename = "with_bold_font.pdf";
 //        String filename = "DoDD-8190.01e.pdf";
 //        String filename = "DoDD-8190.01e-1.pdf";
-        String filename = "DoDD-8190.01e-3-5.pdf";
+//        String filename = "DoDD-8190.01e-8.pdf";
+//        String filename = "DoDD-8190.01e-3-5.pdf";
+//        String filename = "ARN31667-PAM_700-16-000-WEB-1.pdf";
+//        String filename = "DoDI-5000.64p.pdf";
+        String filename = "DoDI-5000.76p.pdf";
+//        String filename = "DoDI-5000.64p-1-2.pdf";
+//        String filename = "DoDI-5000.64p-9.pdf";
 //        String inputPath = args.length > 1 ? args[1] : "src/main/resources/pdfs/two_column.pdf";
         String inputPath = args.length > 1 ? args[1] : "src/main/resources/pdfs/" + filename;
         String outputPath = args.length > 2 ? args[2] : "translated_" + filename;

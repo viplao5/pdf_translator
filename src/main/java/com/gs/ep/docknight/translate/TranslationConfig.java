@@ -38,4 +38,28 @@ public class TranslationConfig {
     public String getApiUrl() {
         return properties.getProperty("api.url", "https://api.siliconflow.cn/v1/chat/completions");
     }
+
+    public String getRedisHost() {
+        return properties.getProperty("redis.host", "localhost");
+    }
+
+    public int getRedisPort() {
+        return Integer.parseInt(properties.getProperty("redis.port", "6379"));
+    }
+
+    public String getRedisPassword() {
+        return properties.getProperty("redis.password", "");
+    }
+
+    public int getRedisDb() {
+        return Integer.parseInt(properties.getProperty("redis.db", "0"));
+    }
+
+    public boolean isRedisEnabled() {
+        return Boolean.parseBoolean(properties.getProperty("redis.enabled", "true"));
+    }
+
+    public int getRedisCacheTtl() {
+        return Integer.parseInt(properties.getProperty("redis.cache.ttl", "2592000"));
+    }
 }

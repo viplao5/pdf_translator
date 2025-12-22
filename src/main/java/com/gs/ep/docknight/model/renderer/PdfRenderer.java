@@ -101,7 +101,45 @@ public class PdfRenderer implements Renderer<byte[]> {
                 }
             }
 
-            // 2. Process elements
+            // 2. Collect table boundaries to identify table-related lines
+            // Store table regions as rectangles (left, top, right, bottom)
+            java.util.List<double[]> tableRegions = new java.util.ArrayList<>();
+            if (page.hasAttribute(PositionalContent.class)) {
+                for (com.gs.ep.docknight.model.TabularElementGroup<Element> tableGroup : page.getPositionalContent()
+                        .getValue().getTabularGroups()) {
+                    // Calculate table bounding box
+                    double minLeft = Double.MAX_VALUE;
+                    double minTop = Double.MAX_VALUE;
+                    double maxRight = Double.MIN_VALUE;
+                    double maxBottom = Double.MIN_VALUE;
+
+                    for (org.eclipse.collections.api.list.MutableList<com.gs.ep.docknight.model.TabularCellElementGroup<Element>> row : tableGroup
+                            .getCells()) {
+                        for (com.gs.ep.docknight.model.TabularCellElementGroup<Element> cell : row) {
+                            if (!cell.getElements().isEmpty()) {
+                                com.gs.ep.docknight.model.RectangleProperties<Double> bbox = cell.getTextBoundingBox();
+                                minLeft = Math.min(minLeft, bbox.getLeft());
+                                minTop = Math.min(minTop, bbox.getTop());
+                                maxRight = Math.max(maxRight, bbox.getRight());
+                                maxBottom = Math.max(maxBottom, bbox.getBottom());
+                            }
+                        }
+                    }
+
+                    if (minLeft != Double.MAX_VALUE) {
+                        // Add some margin to table region to include border lines
+                        double margin = 20.0;
+                        tableRegions.add(new double[] {
+                                minLeft - margin,
+                                minTop - margin,
+                                maxRight + margin,
+                                maxBottom + margin
+                        });
+                    }
+                }
+            }
+
+            // 3. Process elements
             if (page.hasAttribute(PositionalContent.class)) {
                 for (Element element : page.getPositionalContent().getValue().getElements()) {
                     if (element instanceof TextElement) {
@@ -109,13 +147,70 @@ public class PdfRenderer implements Renderer<byte[]> {
                     } else if (element instanceof Image) {
                         renderImage(pdDocument, contentStream, (Image) element, height);
                     } else if (element instanceof HorizontalLine) {
-                        renderHorizontalLine(contentStream, (HorizontalLine) element, height);
+                        // Check if this horizontal line is part of a table
+                        if (isTableLine(element, tableRegions)) {
+                            renderHorizontalLine(contentStream, (HorizontalLine) element, height);
+                        }
                     } else if (element instanceof VerticalLine) {
-                        renderVerticalLine(contentStream, (VerticalLine) element, height);
+                        // Check if this vertical line is part of a table
+                        if (isTableLine(element, tableRegions)) {
+                            renderVerticalLine(contentStream, (VerticalLine) element, height);
+                        }
                     }
                 }
             }
         }
+    }
+
+    /**
+     * Determines if a line element is part of a table structure.
+     * A line is considered a table line if it falls within a table region.
+     */
+    private boolean isTableLine(Element lineElement, java.util.List<double[]> tableRegions) {
+        if (tableRegions.isEmpty()) {
+            return false; // No tables on this page, so no table lines
+        }
+
+        double left = lineElement.getAttribute(Left.class).getMagnitude();
+        double top = lineElement.getAttribute(Top.class).getMagnitude();
+
+        // For a line, we also need to check its extent
+        double lineEnd;
+        if (lineElement instanceof HorizontalLine) {
+            double stretch = lineElement.getAttribute(Stretch.class).getMagnitude();
+            lineEnd = left + stretch;
+            // Check if the line is within any table region
+            for (double[] region : tableRegions) {
+                double tableLeft = region[0];
+                double tableTop = region[1];
+                double tableRight = region[2];
+                double tableBottom = region[3];
+
+                // Check if line is within table's vertical range and overlaps horizontally
+                if (top >= tableTop && top <= tableBottom &&
+                        !(lineEnd < tableLeft || left > tableRight)) {
+                    return true;
+                }
+            }
+        } else if (lineElement instanceof VerticalLine) {
+            double stretch = lineElement.getAttribute(Stretch.class).getMagnitude();
+            lineEnd = top + stretch;
+            // Check if the line is within any table region
+            for (double[] region : tableRegions) {
+                double tableLeft = region[0];
+                double tableTop = region[1];
+                double tableRight = region[2];
+                double tableBottom = region[3];
+
+                // Check if line is within table's horizontal range and overlaps vertically
+                if (left >= tableLeft && left <= tableRight &&
+                        !(lineEnd < tableTop || top > tableBottom)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     private void renderText(PDPageContentStream contentStream, TextElement element, double pageHeight)
@@ -356,15 +451,48 @@ public class PdfRenderer implements Renderer<byte[]> {
         if (cbi == null || cbi.getBufferedImage() == null)
             return;
 
-        PDImageXObject imageXObject = LosslessFactory.createFromImage(pdDocument, cbi.getBufferedImage());
+        java.awt.image.BufferedImage bufferedImage = cbi.getBufferedImage();
+        PDImageXObject imageXObject = LosslessFactory.createFromImage(pdDocument, bufferedImage);
 
         double left = element.getAttribute(Left.class).getMagnitude();
         double top = element.getAttribute(Top.class).getMagnitude();
-        double width = element.getAttribute(Width.class).getMagnitude();
-        double height = element.getAttribute(Height.class).getMagnitude();
+        double targetWidth = element.getAttribute(Width.class).getMagnitude();
+        double targetHeight = element.getAttribute(Height.class).getMagnitude();
 
-        contentStream.drawImage(imageXObject, (float) left, (float) (pageHeight - top - height), (float) width,
-                (float) height);
+        // 获取图片原始尺寸
+        int originalWidth = bufferedImage.getWidth();
+        int originalHeight = bufferedImage.getHeight();
+
+        // 计算宽高比，保持原始比例避免拉伸变形
+        double originalAspectRatio = (double) originalWidth / originalHeight;
+        double targetAspectRatio = targetWidth / targetHeight;
+
+        double renderWidth, renderHeight;
+
+        if (Math.abs(originalAspectRatio - targetAspectRatio) > 0.01) {
+            // 宽高比不一致，需要调整以保持原始比例
+            if (originalAspectRatio > targetAspectRatio) {
+                // 图片更宽，以宽度为基准
+                renderWidth = targetWidth;
+                renderHeight = targetWidth / originalAspectRatio;
+            } else {
+                // 图片更高，以高度为基准
+                renderHeight = targetHeight;
+                renderWidth = targetHeight * originalAspectRatio;
+            }
+        } else {
+            // 宽高比一致，直接使用目标尺寸
+            renderWidth = targetWidth;
+            renderHeight = targetHeight;
+        }
+
+        // 保持图片在原始位置渲染（左上角对齐），不做居中偏移
+        // PDF坐标系Y轴从下往上，所以需要转换
+        contentStream.drawImage(imageXObject,
+                (float) left,
+                (float) (pageHeight - top - renderHeight),
+                (float) renderWidth,
+                (float) renderHeight);
     }
 
     private void renderHorizontalLine(PDPageContentStream contentStream, HorizontalLine element, double pageHeight)

@@ -321,6 +321,13 @@
       <version>10.4.0</version>
       <scope>test</scope>
     </dependency>
+
+    <!-- Redis客户端用于翻译缓存 -->
+    <dependency>
+      <groupId>redis.clients</groupId>
+      <artifactId>jedis</artifactId>
+      <version>4.3.1</version>
+    </dependency>
   </dependencies>
 
 </project>

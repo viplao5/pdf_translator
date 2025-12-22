@@ -895,10 +895,10 @@ public class PhraseExtractor {
   public static void main(String[] args) {
     try {
       // inputs
-      String inputPath = "/Users/mac/Documents/Develop/code/pdf_translator/src/main/resources/pdfs/with_background.pdf";
+      String inputPath = "H:\\workspace\\pdf_translator\\src\\main\\resources\\pdfs\\DoDD-8190.01e-8.pdf";
       String customizationsFilePath = "";
       boolean lookupRecursively = true;
-      String outputPath = "/Users/mac/Documents/Develop/code/pdf_translator/src/main/resources/pdfs/temp";
+      String outputPath = "H:\\workspace\\pdf_translator\\src\\main\\resources\\pdfs\\temp";
       int timeoutInSecondsPerDocument = 300;
       List<Integer> pageNosToOcr = Lists.mutable.of(); // zero based page indexes
       OCREngine ocrEngine = null; // set to OCREngine.TESSERACT or OCREngine.ABBYY or null
