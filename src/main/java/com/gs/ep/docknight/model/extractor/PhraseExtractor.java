@@ -895,7 +895,7 @@ public class PhraseExtractor {
   public static void main(String[] args) {
     try {
       // inputs
-      String inputPath = "H:\\workspace\\pdf_translator\\src\\main\\resources\\pdfs\\DoDD-8190.01e-8.pdf";
+      String inputPath = "H:\\workspace\\pdf_translator\\src\\main\\resources\\pdfs\\DoDI-8115.02p-4.pdf";
       String customizationsFilePath = "";
       boolean lookupRecursively = true;
       String outputPath = "H:\\workspace\\pdf_translator\\src\\main\\resources\\pdfs\\temp";

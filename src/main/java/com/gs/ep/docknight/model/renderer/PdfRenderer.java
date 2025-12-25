@@ -300,6 +300,10 @@ public class PdfRenderer implements Renderer<byte[]> {
             fontSize = element.getAttribute(FontSize.class).getMagnitude();
         }
 
+        // 注意：我们是在全新的空白页面上绘制，不需要白色背景覆盖
+        // 原始英文文本不存在于输出页面中
+        // 之前的"小黑条"问题是因为图形区域截图包含了文本，已通过给截图添加边距解决
+
         // Style check
         boolean isBold = false;
         if (element.hasAttribute(TextStyles.class)) {

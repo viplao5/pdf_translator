@@ -7,6 +7,7 @@ import com.gs.ep.docknight.model.PositionalContext;
 import com.gs.ep.docknight.model.RectangleProperties;
 import com.gs.ep.docknight.model.TabularCellElementGroup;
 import com.gs.ep.docknight.model.TabularElementGroup;
+import com.gs.ep.docknight.model.attribute.Color;
 import com.gs.ep.docknight.model.attribute.Content;
 import com.gs.ep.docknight.model.attribute.FontSize;
 import com.gs.ep.docknight.model.attribute.Height;
@@ -16,6 +17,7 @@ import com.gs.ep.docknight.model.attribute.Text;
 import com.gs.ep.docknight.model.attribute.TextStyles;
 import com.gs.ep.docknight.model.attribute.Top;
 import com.gs.ep.docknight.model.attribute.Width;
+import com.gs.ep.docknight.model.element.Image;
 import com.gs.ep.docknight.model.element.Page;
 import com.gs.ep.docknight.model.element.TextElement;
 import org.eclipse.collections.api.list.MutableList;
@@ -31,13 +33,81 @@ import java.util.Set;
 /**
  * Encapsulates the logic for analyzing page layout, identifying columns,
  * and consolidating text blocks into paragraphs.
+ * 
+ * <p>
+ * 现在支持基于策略模式的页面分析。可以使用 {@link #analyzePageWithStrategy(Page)}
+ * 方法自动检测页面类型并应用相应的处理策略。
+ * </p>
+ * 
+ * <p>
+ * 可用的策略类型：
+ * </p>
+ * <ul>
+ * <li>{@link PageType#SINGLE_COLUMN} - 单栏布局</li>
+ * <li>{@link PageType#MULTI_COLUMN} - 多栏布局</li>
+ * <li>{@link PageType#TABLE_DOMINANT} - 表格主导布局</li>
+ * </ul>
+ * 
+ * @see PageLayoutStrategy
+ * @see PageLayoutStrategyFactory
  */
 public class PdfLayoutAnalyzer {
+
+    // 策略工厂实例
+    private final PageLayoutStrategyFactory strategyFactory;
+
+    // 用于在 consolidation 过程中防止跨栏合并的预检测结果
+    private boolean preDetectedMultiColumn = false;
+    private double currentPageWidth = 0;
+
+    public PdfLayoutAnalyzer() {
+        this.strategyFactory = new PageLayoutStrategyFactory();
+    }
+
+    /**
+     * 使用策略模式分析页面（推荐方式）
+     * 
+     * 自动检测页面类型并应用相应的处理策略。
+     * 
+     * @param page 要分析的页面
+     * @return 提取的布局实体列表
+     */
+    public List<LayoutEntity> analyzePageWithStrategy(Page page) {
+        double pageWidth = page.getAttribute(Width.class).getValue().getMagnitude();
+        double pageHeight = page.getAttribute(Height.class).getValue().getMagnitude();
+
+        PageLayoutStrategy strategy = strategyFactory.createStrategy(page);
+        return strategy.analyzePage(page, pageWidth, pageHeight);
+    }
+
+    /**
+     * 使用指定策略类型分析页面
+     * 
+     * @param page     要分析的页面
+     * @param pageType 指定的页面类型
+     * @return 提取的布局实体列表
+     */
+    public List<LayoutEntity> analyzePageWithStrategy(Page page, PageType pageType) {
+        double pageWidth = page.getAttribute(Width.class).getValue().getMagnitude();
+        double pageHeight = page.getAttribute(Height.class).getValue().getMagnitude();
+
+        PageLayoutStrategy strategy = strategyFactory.getStrategy(pageType);
+        return strategy.analyzePage(page, pageWidth, pageHeight);
+    }
+
+    /**
+     * 获取页面的检测类型（不执行分析）
+     * 
+     * @param page 要检测的页面
+     * @return 检测到的页面类型
+     */
+    public PageType detectPageType(Page page) {
+        return strategyFactory.detectPageType(page);
+    }
 
     public List<LayoutEntity> analyzePage(Page page) {
         double pageWidth = page.getAttribute(Width.class).getValue().getMagnitude();
         double pageHeight = page.getAttribute(Height.class).getValue().getMagnitude();
-        System.out.println("Page width: " + pageWidth + ", Page height: " + pageHeight);
 
         // 获取页面中的所有元素
         List<Element> allRaw = Lists.mutable.ofAll(page.getContainingElements(e -> true));
@@ -73,8 +143,21 @@ public class PdfLayoutAnalyzer {
                 }
             }
         }
+        
+        // 过滤掉图片元素 - 它们不需要布局分析，由 PdfRenderer 单独处理
+        allElements.removeIf(e -> e instanceof Image);
+
+        // 早期预检测：在处理 VerticalGroup 之前，检测是否可能是双栏布局
+        // 这样可以在分组时就按列拆分
+        this.currentPageWidth = pageWidth;
+        this.preDetectedMultiColumn = earlyDetectMultiColumn(allElements, pageWidth, pageHeight);
 
         for (Element element : allElements) {
+            // 跳过图片元素 - 图片不需要文本翻译，由 PdfRenderer 单独处理
+            if (element instanceof Image) {
+                continue;
+            }
+            
             PositionalContext<Element> context = element.getPositionalContext();
             if (context == null) {
                 if (element instanceof TextElement) {
@@ -121,10 +204,20 @@ public class PdfLayoutAnalyzer {
 
             if (vGroup != null) {
                 if (processedGroups.add(vGroup)) {
-                    // 尝试拆分包含多个列表项的 VerticalGroup
-                    List<ElementGroup<Element>> splitGroups = splitGroupByListItems(vGroup);
-                    for (ElementGroup<Element> g : splitGroups) {
-                        entities.add(new LayoutEntity(g, pageWidth, pageHeight));
+                    // 如果预检测到双栏布局，先按列拆分组
+                    List<ElementGroup<Element>> columnSplitGroups;
+                    if (preDetectedMultiColumn) {
+                        columnSplitGroups = splitGroupByColumns(vGroup, pageWidth);
+                    } else {
+                        columnSplitGroups = Lists.mutable.of(vGroup);
+                    }
+
+                    // 然后对每个列组进行列表项拆分
+                    for (ElementGroup<Element> colGroup : columnSplitGroups) {
+                        List<ElementGroup<Element>> splitGroups = splitGroupByListItems(colGroup);
+                        for (ElementGroup<Element> g : splitGroups) {
+                            entities.add(new LayoutEntity(g, pageWidth, pageHeight));
+                        }
                     }
                 }
             } else if (element instanceof TextElement || element.hasAttribute(Text.class)) {
@@ -135,14 +228,16 @@ public class PdfLayoutAnalyzer {
         // Initial sort by top to help greedy consolidation
         entities.sort((a, b) -> Double.compare(a.top, b.top));
 
+        // 预检测双栏布局：在 consolidation 之前，使用原始块列表进行检测
+        // 这样可以在合并过程中阻止跨栏合并
+        this.currentPageWidth = pageWidth;
+        this.preDetectedMultiColumn = preDetectMultiColumn(entities, pageWidth, pageHeight);
+
         // 2. Greedy spatial consolidation across the entire page
-        System.out.println("--- Consolidation Start (Total " + entities.size() + " blocks) ---");
         List<LayoutEntity> consolidated = consolidateBlocks(entities);
-        System.out.println("--- Consolidation End (Result " + consolidated.size() + " blocks) ---");
 
         // 3. Assign reading areas and sort
         boolean multiColumn = detectMultiColumn(consolidated, pageWidth, pageHeight);
-        System.out.println("Page Layout: " + (multiColumn ? "Multi-Column" : "Single-Column") + " detected.");
 
         consolidated.sort((a, b) -> {
             int areaA = getReadingArea(a, multiColumn);
@@ -155,6 +250,155 @@ public class PdfLayoutAnalyzer {
         });
 
         return consolidated;
+    }
+
+    /**
+     * 早期预检测：基于原始元素列表检测双栏布局
+     * 在处理 VerticalGroup 之前调用
+     */
+    private boolean earlyDetectMultiColumn(List<Element> elements, double pageWidth, double pageHeight) {
+        int leftElements = 0;
+        int rightElements = 0;
+
+        for (Element elem : elements) {
+            if (!elem.hasAttribute(Left.class) || !elem.hasAttribute(Top.class))
+                continue;
+
+            double left = elem.getAttribute(Left.class).getMagnitude();
+            double top = elem.getAttribute(Top.class).getMagnitude();
+
+            // 忽略页眉页脚区域
+            if (top < pageHeight * 0.08 || top > pageHeight * 0.92)
+                continue;
+
+            double centerX = left;
+            if (elem.hasAttribute(Width.class)) {
+                centerX = left + elem.getAttribute(Width.class).getMagnitude() / 2.0;
+            }
+
+            if (centerX < pageWidth * 0.45) {
+                leftElements++;
+            } else if (centerX > pageWidth * 0.55) {
+                rightElements++;
+            }
+        }
+
+        // 如果左右两边都有至少 3 个元素，很可能是双栏
+        return leftElements >= 3 && rightElements >= 3;
+    }
+
+    /**
+     * 按列拆分 VerticalGroup：将同一组中位于不同列的元素拆分
+     * 用于处理 PDF 解析器错误地将左右栏内容分组到同一个 VerticalGroup 的情况
+     */
+    private List<ElementGroup<Element>> splitGroupByColumns(ElementGroup<Element> group, double pageWidth) {
+        MutableList<Element> elements = group.getElements();
+        if (elements.size() <= 1) {
+            return Lists.mutable.of(group);
+        }
+
+        // 按水平位置分成左栏和右栏
+        MutableList<Element> leftElements = Lists.mutable.empty();
+        MutableList<Element> rightElements = Lists.mutable.empty();
+        double columnBoundary = pageWidth * 0.5; // 使用页面中点作为列边界
+
+        for (Element elem : elements) {
+            if (!elem.hasAttribute(Left.class)) {
+                leftElements.add(elem); // 没有位置信息的元素放到左栏
+                continue;
+            }
+
+            double left = elem.getAttribute(Left.class).getMagnitude();
+
+            // Fix: Use Left position instead of CenterX.
+            // Wide indented blocks (like References) might have CenterX > boundary
+            // but they start on the left and should belong to the left column.
+            if (left < columnBoundary) {
+                leftElements.add(elem);
+            } else {
+                rightElements.add(elem);
+            }
+        }
+
+        List<ElementGroup<Element>> result = new ArrayList<>();
+
+        // 如果所有元素都在同一侧，返回原始组
+        if (leftElements.isEmpty()) {
+            result.add(new ElementGroup<>(rightElements));
+        } else if (rightElements.isEmpty()) {
+            result.add(new ElementGroup<>(leftElements));
+        } else {
+            // 有跨栏元素，需要拆分
+            // 按 top 排序各组
+            leftElements.sortThis((e1, e2) -> Double.compare(
+                    e1.getAttribute(Top.class).getMagnitude(),
+                    e2.getAttribute(Top.class).getMagnitude()));
+            rightElements.sortThis((e1, e2) -> Double.compare(
+                    e1.getAttribute(Top.class).getMagnitude(),
+                    e2.getAttribute(Top.class).getMagnitude()));
+
+            result.add(new ElementGroup<>(leftElements));
+            result.add(new ElementGroup<>(rightElements));
+        }
+
+        return result;
+    }
+
+    /**
+     * 预检测双栏布局：在 consolidation 之前使用原始块列表
+     * 更激进的检测，用于指导 shouldMerge 的行为
+     */
+    private boolean preDetectMultiColumn(List<LayoutEntity> blocks, double pageWidth, double pageHeight) {
+        // 统计左半边和右半边的块数量
+        int leftBlocks = 0;
+        int rightBlocks = 0;
+        int parallelPairings = 0;
+
+        for (LayoutEntity block : blocks) {
+            // 忽略页眉页脚区域
+            if (block.top < pageHeight * 0.08 || block.bottom > pageHeight * 0.92)
+                continue;
+            // 忽略跨越整个页面的宽块
+            if ((block.right - block.left) > pageWidth * 0.65)
+                continue;
+
+            double centerX = (block.left + block.right) / 2.0;
+            if (centerX < pageWidth * 0.45) {
+                leftBlocks++;
+            } else if (centerX > pageWidth * 0.55) {
+                rightBlocks++;
+            }
+        }
+
+        // 如果左右两边都有至少 2 个块，很可能是双栏
+        if (leftBlocks >= 2 && rightBlocks >= 2) {
+            return true;
+        }
+
+        // 检查平行块对
+        for (int i = 0; i < blocks.size(); i++) {
+            LayoutEntity a = blocks.get(i);
+            if (a.top < pageHeight * 0.1 && (a.bottom - a.top) < 30)
+                continue;
+
+            for (int j = i + 1; j < blocks.size(); j++) {
+                LayoutEntity b = blocks.get(j);
+                if (b.top < pageHeight * 0.1 && (b.bottom - b.top) < 30)
+                    continue;
+
+                // 检查窄块对（宽度 < 55%）
+                if ((a.right - a.left) < pageWidth * 0.55 && (b.right - b.left) < pageWidth * 0.55) {
+                    double overlap = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+                    double hGap = Math.abs((a.left + a.right) / 2.0 - (b.left + b.right) / 2.0);
+                    // 明显的水平分离和垂直重叠
+                    if (overlap > 5 && hGap > pageWidth * 0.30) {
+                        parallelPairings++;
+                    }
+                }
+            }
+        }
+
+        return parallelPairings >= 1;
     }
 
     public boolean detectMultiColumn(List<LayoutEntity> blocks, double pageWidth, double pageHeight) {
@@ -212,6 +456,22 @@ public class PdfLayoutAnalyzer {
         if (width > entity.pageWidth * 0.65) {
             return 0; // Wide spanning block
         }
+
+        // Gutter spanning check:
+        // If a block clearly starts in the left half and ends in the right half,
+        // it spans the column gap and should be treated as a full-width block (Area 0).
+        if (entity.left < entity.pageWidth * 0.45 && entity.right > entity.pageWidth * 0.55) {
+            return 0;
+        }
+
+        // Left-margin start check:
+        // If a block starts near the left margin (within first 25% of page),
+        // it's likely main content that flows left-to-right, not a right column.
+        // This handles indented lists like References that start at left but extend right.
+        if (entity.left < entity.pageWidth * 0.25) {
+            return 0;
+        }
+
         if (Math.abs(centerX - entity.pageWidth * 0.5) < 15 && width < entity.pageWidth * 0.5) {
             return 0; // Centered block
         }
@@ -233,11 +493,14 @@ public class PdfLayoutAnalyzer {
         double blockWidth = e.right - e.left;
         double leftMargin = e.left;
         double rightMargin = e.pageWidth - e.right;
-        // 居中块检测条件收紧：
-        // 1. 左右边距差异小于 15pt
-        // 2. 左边距 > 100pt 或 内容宽度 < 40% 页宽
+        // 居中块检测条件放宽：
+        // 条件1: 左右边距差异小于 15pt，且满足以下任一条件：
+        // a) 左边距大于 100pt（明显居中）
+        // b) 内容较短（< 40% 页宽，适合短标题）
+        // c) 左右边距都大于 60pt 且差异很小（< 5pt），适合宽标题
+        boolean verySymmetric = Math.abs(leftMargin - rightMargin) < 5 && leftMargin > 60 && rightMargin > 60;
         boolean isCenteredBlock = Math.abs(leftMargin - rightMargin) < 15
-                && (leftMargin > 100 || blockWidth < e.pageWidth * 0.4);
+                && (leftMargin > 100 || blockWidth < e.pageWidth * 0.4 || verySymmetric);
 
         StringBuilder sb = new StringBuilder();
         Element prev = null;
@@ -391,11 +654,6 @@ public class PdfLayoutAnalyzer {
                     LayoutEntity b = current.get(j);
                     if (shouldMerge(a, b)) {
                         LayoutEntity mergedEntity = merge(a, b);
-                        String rawA = getBlockText(a);
-                        String rawB = getBlockText(b);
-                        String textA = rawA.substring(0, Math.min(15, rawA.length())).replace("\n", " ");
-                        String textB = rawB.substring(0, Math.min(15, rawB.length())).replace("\n", " ");
-                        System.out.println("Merging: [" + textA + "] and [" + textB + "]");
                         current.set(i, mergedEntity);
                         current.remove(j);
                         merged = true;
@@ -417,6 +675,72 @@ public class PdfLayoutAnalyzer {
         double hOverlap = Math.min(a.right, b.right) - Math.max(a.left, b.left);
         double minWidth = Math.min(a.right - a.left, b.right - b.left);
 
+        // === 关键：跨栏合并早期阻止 ===
+        // 当预检测到双栏布局时，如果两个块明显位于不同的栏，直接阻止合并
+        // 这个检查必须在所有其他检查之前，以防止任何跨栏合并
+        if (preDetectedMultiColumn) {
+            double columnBoundary = a.pageWidth * 0.5; // 列边界
+            double leftColumnMax = a.pageWidth * 0.48; // 左栏最大中心点
+            double rightColumnMin = a.pageWidth * 0.52; // 右栏最小中心点
+
+            double aCenterX = (a.left + a.right) / 2.0;
+            double bCenterX = (b.left + b.right) / 2.0;
+
+            // 计算块宽度
+            double aWidth = a.right - a.left;
+            double bWidth = b.right - b.left;
+
+            // 关键修复：宽块（跨越页面大部分宽度）不应被视为"跨栏"
+            // 这是单栏布局中的正常段落，即使它跨越了页面中线
+            boolean aIsWideBlock = aWidth > a.pageWidth * 0.55;
+            boolean bIsWideBlock = bWidth > b.pageWidth * 0.55;
+
+            // 检查块是否已经跨栏（右边界超过列边界但左边界在左栏）
+            // 但排除宽块，因为宽块是单栏布局的正常段落
+            boolean aIsCrossColumn = a.left < columnBoundary && a.right > columnBoundary && !aIsWideBlock;
+            boolean bIsCrossColumn = b.left < columnBoundary && b.right > columnBoundary && !bIsWideBlock;
+
+            // 如果任一块是真正的跨栏块（窄块跨越中线），不允许进一步合并
+            if (aIsCrossColumn || bIsCrossColumn) {
+                return false;
+            }
+
+            // 如果两个块都是宽块，允许正常合并（它们是单栏内容）
+            if (aIsWideBlock && bIsWideBlock) {
+                // 不阻止合并，继续后续检查
+            } else if (aIsWideBlock || bIsWideBlock) {
+                // 一个是宽块，一个不是：检查是否在同一垂直区域
+                // 宽块可以与其下方/上方紧邻的窄块合并（如标题与正文）
+                if (vGap > 15) {
+                    // 垂直间距较大，可能不是同一段落
+                    // 但不在这里阻止，让后续逻辑决定
+                }
+            } else {
+                // 两个都是窄块，执行原有的跨栏检查
+                // 检查是否位于不同的半边
+                boolean aInLeftHalf = aCenterX < leftColumnMax;
+                boolean aInRightHalf = aCenterX > rightColumnMin;
+                boolean bInLeftHalf = bCenterX < leftColumnMax;
+                boolean bInRightHalf = bCenterX > rightColumnMin;
+
+                // 如果一个在左半边，另一个在右半边，不应合并
+                if ((aInLeftHalf && bInRightHalf) || (aInRightHalf && bInLeftHalf)) {
+                    return false;
+                }
+
+                // 额外检查：如果块的边界跨越了列边界（但中心点没有），也阻止合并
+                boolean aReachesRight = a.right > columnBoundary;
+                boolean bReachesRight = b.right > columnBoundary;
+
+                // 如果 A 延伸到右半边，B 在左半边开始，可能是跨栏情况
+                if ((aReachesRight && bInLeftHalf) || (bReachesRight && aInLeftHalf)) {
+                    if (Math.abs(a.top - b.top) < 5) {
+                        return false;
+                    }
+                }
+            }
+        }
+
         // 计算页面右边距（假设标准边距约 54-72pt）
         double rightMargin = a.pageWidth - 54;
 
@@ -433,12 +757,168 @@ public class PdfLayoutAnalyzer {
         if (startsWithBullet(b))
             return false;
 
-        // 检查 Area 是否相同
-        if (getReadingArea(a, false) != getReadingArea(b, false))
+        // === 2.3 PREVENT MERGING: 新章节/节标题开始 ===
+        // 检查 B 是否是新的章节标题（如 "SECTION 2:", "GLOSSARY", "REFERENCES"）
+        String textB_early = getBlockText(b).trim();
+        boolean bIsNewSectionTitle = textB_early.matches("(?i)^SECTION\\s+\\d+.*")
+                || textB_early.matches("(?i)^GLOSSARY.*")
+                || textB_early.matches("(?i)^REFERENCES.*")
+                || textB_early.matches("(?i)^APPENDIX.*")
+                || textB_early.matches("(?i)^TABLE OF CONTENTS.*")
+                || textB_early.matches("(?i)^INDEX.*");
+        if (bIsNewSectionTitle)
+            return false;
+
+        // === 2.4 PREVENT MERGING: 颜色不同 ===
+        // 不同颜色的文本通常不属于同一段落（如蓝色标题 vs 黑色正文）
+        Element firstElemA = ((ElementGroup<Element>) a.group).getFirst();
+        Element firstElemB = ((ElementGroup<Element>) b.group).getFirst();
+        if (firstElemA != null && firstElemB != null) {
+            if (firstElemA.hasAttribute(Color.class) && firstElemB.hasAttribute(Color.class)) {
+                java.awt.Color colorA = firstElemA.getAttribute(Color.class).getValue();
+                java.awt.Color colorB = firstElemB.getAttribute(Color.class).getValue();
+                if (colorA != null && colorB != null && !colorA.equals(colorB)) {
+                    // 颜色不同，不合并
+                    return false;
+                }
+            }
+        }
+
+        // === 2.45 PREVENT MERGING: B 是新的参考文献条目 ===
+        // 参考文献检测必须在自然续行检测之前，否则会被错误合并
+        // 检查 B 是否以参考文献开头模式开始，且 B 从左边距开始（不是缩进的续行）
+        String earlyTextB = getBlockText(b).trim();
+        boolean bStartsFromLeftMargin = b.left < 80; // 从左边距开始
+        boolean bIsIndentedContinuation = b.left > a.left + 10; // 明显缩进的续行
+
+        if (bStartsFromLeftMargin && !bIsIndentedContinuation && isReferenceEntry(earlyTextB)) {
+            // B 是新的参考文献条目（从左边距开始），不应与 A 合并
+            return false;
+        }
+
+        // === 2.5 自然段落换行检测（优先于 Area 检查）===
+        // 关键原则：自然续行应该合并，即使 Area 不同
+        // 例如：页面底部列表项的续行可能被分配到不同的 Area
+        Element earlyFirstA = ((ElementGroup<Element>) a.group).getFirst();
+        Element earlyFirstB = ((ElementGroup<Element>) b.group).getFirst();
+
+        // 计算上一行是否"填满"
+        boolean earlyALineIsFull = a.right > a.pageWidth * 0.80;
+        boolean earlyAIsRightAligned = a.right > a.pageWidth * 0.85 && a.left > a.pageWidth * 0.35;
+        boolean earlySameIndent = Math.abs(a.left - b.left) <= 5;
+        boolean earlyBIsLessIndented = b.left < a.left - 5;
+        boolean earlyLargeLeftShift = a.left - b.left > 100;
+
+        // 估算行高和字体大小
+        double earlyEstimatedLineHeight = 12.0;
+        double earlyFontSize = 10.0;
+        if (earlyFirstA != null && earlyFirstA.hasAttribute(FontSize.class)) {
+            earlyFontSize = earlyFirstA.getAttribute(FontSize.class).getValue().getMagnitude();
+            earlyEstimatedLineHeight = earlyFontSize * 1.4;
+        }
+
+        // 关键规则：检测"有空间但没放"的情况
+        // 如果上一行末尾还有足够空间容纳下一行的首单词，但却另起一行，说明是新段落
+        // 使用 A 块的 lastLineRight（最后一行的右边界）而不是整个块的 right
+        // 估算首单词宽度：取 B 的第一个单词长度 * 字符平均宽度（约 0.6 * 字体大小）
+        String textBForCheck = getBlockText(b).trim();
+        int firstWordLength = 0;
+        for (int i = 0; i < textBForCheck.length() && i < 20; i++) {
+            char c = textBForCheck.charAt(i);
+            if (Character.isWhitespace(c))
+                break;
+            firstWordLength++;
+        }
+        double estimatedFirstWordWidth = firstWordLength * earlyFontSize * 0.6;
+
+        // 页面右边距（假设标准右边距约 54-72pt）
+        double pageRightEdge = a.pageWidth - 54;
+        // 使用 lastLineRight（最后一行的右边界）来计算剩余空间
+        double remainingSpaceInA = pageRightEdge - a.lastLineRight;
+
+        // 如果上一行剩余空间 > 首单词宽度 + 一些余量，说明有空间但没放，是新段落
+        boolean hasSpaceButNotUsed = remainingSpaceInA > estimatedFirstWordWidth + 10;
+
+        // 调试输出
+        String debugTextA = getBlockText(a).trim();
+        String debugTextB = textBForCheck;
+        if (debugTextA.length() > 20)
+            debugTextA = debugTextA.substring(0, 20);
+        if (debugTextB.length() > 20)
+            debugTextB = debugTextB.substring(0, 20);
+        // System.out.printf(" [Merge Check] A='%s' B='%s'%n", debugTextA, debugTextB);
+        // System.out.printf(" lastLineRight=%.1f, pageRightEdge=%.1f,
+        // remaining=%.1f%n",
+        // a.lastLineRight, pageRightEdge, remainingSpaceInA);
+        // System.out.printf(" firstWord='%s' (len=%d), estWidth=%.1f,
+        // hasSpaceButNotUsed=%b%n",
+        // textBForCheck.substring(0, Math.min(firstWordLength,
+        // textBForCheck.length())),
+        // firstWordLength, estimatedFirstWordWidth, hasSpaceButNotUsed);
+
+        // 关键：区分段落内换行 vs 段落间分隔
+        boolean earlyTightVerticalGap = vGap < earlyEstimatedLineHeight * 0.5;
+        boolean earlyVeryTightGap = vGap < 5;
+        boolean isParagraphSeparation = vGap > earlyEstimatedLineHeight * 0.8;
+
+        // 新段落检测：有空间但没用 且 缩进相同（不是悬挂缩进的续行）
+        boolean likelyNewParagraph = hasSpaceButNotUsed && earlySameIndent;
+        // System.out.printf(" vGap=%.1f, tightGap=%b, sameIndent=%b,
+        // likelyNewPara=%b%n",
+        // vGap, earlyTightVerticalGap, earlySameIndent, likelyNewParagraph);
+
+        // === CRITICAL: 如果检测到新段落（有空间但没使用），且不是非常紧密的行（vGap > 2），直接阻止合并 ===
+        // 这是最重要的段落分隔规则
+        if (likelyNewParagraph && vGap > 2) {
+            // System.out.println(" -> PREVENT: New paragraph detected (space available but
+            // not used)");
+            return false;
+        }
+
+        // 自然续行条件（优先于 Area 检查）
+        // 必须：垂直间距紧密 且 不是段落分隔 且 不是语义上的新段落
+        if (earlyALineIsFull && !earlyAIsRightAligned && earlyTightVerticalGap && !isParagraphSeparation
+                && !likelyNewParagraph) {
+            if (earlySameIndent || (earlyBIsLessIndented && !earlyLargeLeftShift)) {
+                return true; // 自然续行，即使 Area 不同也合并
+            }
+        }
+        if (earlyVeryTightGap && earlyBIsLessIndented && !earlyLargeLeftShift && !isParagraphSeparation) {
+            return true; // 非常紧密的续行（悬挂缩进的续行，不受新段落检测影响）
+        }
+
+        // 检查 Area 是否相同（对于非自然续行的块）
+        // 关键修复：使用预检测结果来判断 Area，而不是硬编码 false
+        if (getReadingArea(a, preDetectedMultiColumn) != getReadingArea(b, preDetectedMultiColumn))
             return false;
 
         // === 3. SAME LINE: 水平片段合并 ===
-        if (vGap < 4 && hOverlap > -5 && Math.abs(a.top - b.top) < 3)
+        // 关键修复：检查水平间隙，避免跨栏合并
+        // 对于双栏布局，左栏和右栏的顶部内容可能在同一水平线上，但不应合并
+        double hGap = 0;
+        if (a.right < b.left) {
+            hGap = b.left - a.right; // A 在左，B 在右
+        } else if (b.right < a.left) {
+            hGap = a.left - b.right; // B 在左，A 在右
+        }
+
+        // 如果预检测到双栏布局，使用更严格的阈值
+        double hGapThreshold = preDetectedMultiColumn ? 15.0 : 20.0;
+        double hGapPercentThreshold = preDetectedMultiColumn ? 0.03 : 0.05;
+
+        // 如果水平间隙超过阈值，说明可能是不同栏的内容
+        boolean hasLargeHorizontalGap = hGap > hGapThreshold || hGap > a.pageWidth * hGapPercentThreshold;
+
+        // 额外检查：如果两个块明显位于页面的不同半边，不应合并
+        double aCenterX = (a.left + a.right) / 2.0;
+        double bCenterX = (b.left + b.right) / 2.0;
+        // 对于预检测到的双栏布局，使用更宽松的"不同半边"判断
+        double leftBoundary = preDetectedMultiColumn ? 0.48 : 0.45;
+        double rightBoundary = preDetectedMultiColumn ? 0.52 : 0.55;
+        boolean inDifferentHalves = (aCenterX < a.pageWidth * leftBoundary && bCenterX > a.pageWidth * rightBoundary)
+                || (bCenterX < a.pageWidth * leftBoundary && aCenterX > a.pageWidth * rightBoundary);
+
+        if (vGap < 4 && hOverlap > -5 && Math.abs(a.top - b.top) < 3 && !hasLargeHorizontalGap && !inDifferentHalves)
             return true;
 
         // === 4. 特殊内容检测 ===
@@ -487,9 +967,39 @@ public class PdfLayoutAnalyzer {
         if (isRightSideA && isRightSideB && vGap > 2)
             return false;
 
-        // === 5. 样式检测 ===
+        // === 5. 居中对齐检测（优先于样式检测）===
+        // 居中标题可能有不同字体大小，但应该合并
+        // 居中对齐的特征：左右边距相近且较大，内容宽度较窄
+        double leftMarginA = a.left;
+        double rightMarginA = a.pageWidth - a.right;
+        double leftMarginB = b.left;
+        double rightMarginB = b.pageWidth - b.right;
+        double widthA = a.right - a.left;
+        double widthB = b.right - b.left;
+
+        // 居中检测条件放宽：
+        // 条件1: 左右边距差异小于 15pt，且满足以下任一条件：
+        // a) 左边距大于 100pt（明显居中）
+        // b) 内容较短（< 40% 页宽，适合短标题）
+        // c) 左右边距都大于 60pt 且差异很小（< 5pt），适合宽标题
+        boolean aVerySymmetric = Math.abs(leftMarginA - rightMarginA) < 5 && leftMarginA > 60 && rightMarginA > 60;
+        boolean bVerySymmetric = Math.abs(leftMarginB - rightMarginB) < 5 && leftMarginB > 60 && rightMarginB > 60;
+        boolean aCentered = Math.abs(leftMarginA - rightMarginA) < 15
+                && (leftMarginA > 100 || widthA < a.pageWidth * 0.4 || aVerySymmetric);
+        boolean bCentered = Math.abs(leftMarginB - rightMarginB) < 15
+                && (leftMarginB > 100 || widthB < b.pageWidth * 0.4 || bVerySymmetric);
+
+        // 如果两行都是居中的，且垂直间距很小，应该合并（如多行标题）
+        // 这个检测优先于样式检测，因为居中标题可能有不同字体大小
+        if (aCentered && bCentered && vGap < 15) {
+            return true;
+        }
+
+        // === 5.5 样式检测（对于非自然续行的内容）===
+        // 注意：自然续行已在 Area 检查之前处理，这里仅处理剩余情况
         Element firstA = ((ElementGroup<Element>) a.group).getFirst();
         Element firstB = ((ElementGroup<Element>) b.group).getFirst();
+
         if (firstA != null && firstB != null) {
             if (firstA.hasAttribute(FontSize.class) && firstB.hasAttribute(FontSize.class)) {
                 double sizeA = firstA.getAttribute(FontSize.class).getValue().getMagnitude();
@@ -501,85 +1011,31 @@ public class PdfLayoutAnalyzer {
                 return false;
         }
 
-        // === 5.5 居中对齐检测 - 两行都居中时应该合并 ===
-        // 居中对齐的特征：左右边距相近且较大，内容宽度较窄
-        double leftMarginA = a.left;
-        double rightMarginA = a.pageWidth - a.right;
-        double leftMarginB = b.left;
-        double rightMarginB = b.pageWidth - b.right;
-        double widthA = a.right - a.left;
-        double widthB = b.right - b.left;
-
-        // 居中检测条件收紧：
-        // 1. 左右边距差异小于 15pt
-        // 2. 左边距 > 100pt 或 内容宽度 < 40% 页宽
-        boolean aCentered = Math.abs(leftMarginA - rightMarginA) < 15
-                && (leftMarginA > 100 || widthA < a.pageWidth * 0.4);
-        boolean bCentered = Math.abs(leftMarginB - rightMarginB) < 15
-                && (leftMarginB > 100 || widthB < b.pageWidth * 0.4);
-
-        // 如果两行都是居中的，且垂直间距很小，应该合并（如多行标题）
-        if (aCentered && bCentered && vGap < 15) {
-            return true;
-        }
-
-        // === 6. 自然段落换行检测 ===
-        // 关键原则：
-        // - 自然换行：上一行填满到右边距，下一行从左边距开始
-        // - 段落结束：上一行没填满（提前换行），不应与下一行合并
-        // - 缩进变化：如果 b.left > a.left，说明 b 是新段落/子项的开始
-
-        // 计算上一行是否"填满"（右边接近页面右边距）
-        // 使用页面宽度的 80% 作为阈值，更宽松地判断
-        boolean aLineIsFull = a.right > a.pageWidth * 0.80;
-
-        // 检测 A 是否是右对齐块（右侧接近边缘，但左侧远离左边距）
-        // 右对齐块不应与居中/左对齐块合并
-        boolean aIsRightAligned = a.right > a.pageWidth * 0.85 && a.left > a.pageWidth * 0.35;
-
         // 计算缩进关系
-        boolean bIsMoreIndented = b.left > a.left + 5; // b 比 a 缩进更多
-        boolean bIsLessIndented = b.left < a.left - 5; // b 比 a 缩进更少（续行特征）
-        boolean sameIndent = Math.abs(a.left - b.left) <= 5; // 相同缩进
+        boolean bIsMoreIndented = b.left > a.left + 5;
+        boolean sameIndent = Math.abs(a.left - b.left) <= 5;
+        boolean veryTightGap = vGap < 5;
 
-        // 检测左侧位置差异过大（如右对齐页眉 vs 居中标题）
-        // 如果 b 的左侧比 a 的左侧向左偏移超过 100pt，这通常不是续行
-        boolean largeLeftShift = a.left - b.left > 100;
-
-        // 垂直间距阈值（基于行高估算）
-        double estimatedLineHeight = 12.0;
-        if (firstA != null && firstA.hasAttribute(FontSize.class)) {
-            estimatedLineHeight = firstA.getAttribute(FontSize.class).getValue().getMagnitude() * 1.4;
-        }
-        boolean tightVerticalGap = vGap < estimatedLineHeight * 0.6; // 紧密的行间距（收紧）
-        boolean veryTightGap = vGap < 5; // 非常紧密的间距
-
-        // 情况 A: 续行检测 - 上一行填满 + 下一行缩进更少 + 紧密间距
-        // 这是最典型的段落内换行：(3) Are responsible for... [填满]
-        // government property... [从左边开始]
-        // 但要排除：右对齐页眉 + 居中标题（左侧偏移过大）
-        if (aLineIsFull && bIsLessIndented && tightVerticalGap && !aIsRightAligned && !largeLeftShift) {
-            return true;
-        }
-
-        // 情况 B: 上一行填满 + 下一行相同缩进 + 紧密间距 → 同一段落
-        // 但要排除右对齐块
-        if (aLineIsFull && sameIndent && tightVerticalGap && !aIsRightAligned) {
-            return true;
-        }
-
-        // 情况 C: 非常紧密的间距 + 下一行缩进更少 → 很可能是续行
-        // 即使上一行没完全填满，如果间距很小且 b 从更左的位置开始，也是续行
-        // 但要排除左侧偏移过大的情况（如右对齐页眉 vs 居中标题）
-        if (veryTightGap && bIsLessIndented && !largeLeftShift) {
-            return true;
-        }
-
-        // 情况 D: b 比 a 缩进更多 → 新段落/子项，不合并
-        if (bIsMoreIndented)
+        // b 比 a 缩进更多的情况：
+        // 1. 通常表示新段落/子项，不应合并
+        // 2. 但如果 A 是列表项开始（如 (a), (b)）且 B 不是新列表项，
+        //    则 B 是 A 的悬挂缩进续行，应该合并
+        if (bIsMoreIndented) {
+            boolean aIsListItem = startsWithBullet(a);
+            boolean bIsNewListItem = startsWithBullet(b);
+            
+            // 列表项续行条件：A是列表项，B不是新列表项，且缩进差不超过50pt（典型悬挂缩进）
+            boolean isListItemContinuation = aIsListItem && !bIsNewListItem && (b.left - a.left) < 50;
+            
+            if (isListItemContinuation && vGap < 8) {
+                // 列表项续行：直接合并（悬挂缩进格式）
+                return true;
+            }
+            // 非列表项续行，且B更缩进，不合并
             return false;
+        }
 
-        // === 7. 保守的垂直合并 ===
+        // === 6. 保守的垂直合并 ===
         if (vGap > 6)
             return false;
 
@@ -593,9 +1049,14 @@ public class PdfLayoutAnalyzer {
     private List<ElementGroup<Element>> splitGroupByListItems(ElementGroup<Element> group) {
         List<ElementGroup<Element>> result = new java.util.ArrayList<>();
         MutableList<Element> elements = group.getElements();
+        
+        // 过滤掉图片元素
+        elements = elements.reject(e -> e instanceof Image);
 
         if (elements.size() <= 1) {
-            result.add(group);
+            if (!elements.isEmpty()) {
+                result.add(new ElementGroup<>(elements));
+            }
             return result;
         }
 
@@ -623,35 +1084,69 @@ public class PdfLayoutAnalyzer {
             boolean shouldSplit = false;
 
             if (!currentGroup.isEmpty() && lastElem != null && elemTop > lastBottom + 2) {
-                // 检测是否是新的列表项开始
-                if (isListItemStart(text)) {
-                    shouldSplit = true;
+                // 首先检测是否是列表项续行
+                // 列表项续行不应该被拆分，即使看起来像词汇表条目或样式变化
+                String lastText = "";
+                if (lastElem.hasAttribute(Text.class)) {
+                    lastText = lastElem.getAttribute(Text.class).getValue().trim();
                 }
-
-                // 检测是否是新的词汇表/缩略语条目开始
-                if (isGlossaryEntryStart(text)) {
-                    shouldSplit = true;
+                boolean lastWasListItemStart = isListItemStart(lastText);
+                boolean currentIsListItemStart = isListItemStart(text);
+                
+                // 列表项续行：上一行是列表项开始，当前行不是新列表项
+                boolean isListItemContinuation = lastWasListItemStart && !currentIsListItemStart;
+                // 也考虑多行续行：当前组的第一个元素是列表项开始或章节编号开始
+                boolean groupStartsWithSection = false;
+                if (!currentGroup.isEmpty()) {
+                    Element firstInGroup = currentGroup.get(0);
+                    if (firstInGroup.hasAttribute(Text.class)) {
+                        String firstText = firstInGroup.getAttribute(Text.class).getValue().trim();
+                        // 检查是否以章节编号开始（如 E2.1., 6.1.2., 1.1.）
+                        groupStartsWithSection = isSectionNumberStart(firstText);
+                        if ((isListItemStart(firstText) || groupStartsWithSection) && !currentIsListItemStart) {
+                            isListItemContinuation = true;
+                        }
+                    }
                 }
+                
+                // 如果是列表项/章节续行，不检测词汇表、定义或样式拆分条件
+                // 只在遇到新的列表项或章节编号时才拆分
+                if (!isListItemContinuation) {
+                    // 检测是否是新的列表项开始
+                    if (isListItemStart(text)) {
+                        shouldSplit = true;
+                    }
+    
+                    // 检测是否是新的词汇表/缩略语条目开始
+                    // 但如果当前组是章节段落（以 E2.1. 等开头），不要因为缩写而拆分
+                    if (!groupStartsWithSection && isGlossaryEntryStart(text)) {
+                        shouldSplit = true;
+                    }
+    
+                    // 检测是否是新的定义词条开始
+                    if (!groupStartsWithSection && isDefinitionEntry(text)) {
+                        shouldSplit = true;
+                    }
+                    
+                    // 检测字体大小变化（仅对非章节段落）
+                    if (!groupStartsWithSection) {
+                        double lastFontSize = getElementFontSize(lastElem);
+                        double currFontSize = getElementFontSize(elem);
+                        if (lastFontSize > 0 && currFontSize > 0 && Math.abs(lastFontSize - currFontSize) > 1.5) {
+                            shouldSplit = true;
+                        }
+                    }
 
-                // 检测是否是新的定义词条开始
-                if (isDefinitionEntry(text)) {
-                    shouldSplit = true;
-                }
-
-                // 检测字体大小变化
-                double lastFontSize = getElementFontSize(lastElem);
-                double currFontSize = getElementFontSize(elem);
-                if (lastFontSize > 0 && currFontSize > 0 && Math.abs(lastFontSize - currFontSize) > 1.5) {
-                    shouldSplit = true;
-                }
-
-                // 检测粗体/斜体变化
-                boolean lastBold = isBold(lastElem);
-                boolean currBold = isBold(elem);
-                boolean lastItalic = isItalic(lastElem);
-                boolean currItalic = isItalic(elem);
-                if (lastBold != currBold || lastItalic != currItalic) {
-                    shouldSplit = true;
+                    // 检测粗体/斜体变化（仅对非章节段落）
+                    if (!groupStartsWithSection) {
+                        boolean lastBold = isBold(lastElem);
+                        boolean currBold = isBold(elem);
+                        boolean lastItalic = isItalic(lastElem);
+                        boolean currItalic = isItalic(elem);
+                        if (lastBold != currBold || lastItalic != currItalic) {
+                            shouldSplit = true;
+                        }
+                    }
                 }
 
                 // 检测水平位置大幅变化（如右对齐页眉 -> 居中标题）
@@ -711,12 +1206,22 @@ public class PdfLayoutAnalyzer {
         if (text == null || text.isEmpty())
             return false;
 
-        // 检测括号标记，但要排除缩写
+        // 检测括号标记，但要排除缩写和引用续行
         if ((text.startsWith("(") || text.startsWith("（")) && text.length() >= 3) {
             int closeIdx = text.indexOf(')');
             if (closeIdx == -1)
                 closeIdx = text.indexOf('）');
             if (closeIdx > 1 && closeIdx < 10) {
+                // 关键检查：如果紧跟着另一个右括号，这是引用续行如 "(k)), the..."
+                // 这种情况出现在 "Reference (k)" 换行后变成 "(k)), ..."
+                if (closeIdx + 1 < text.length()) {
+                    char nextChar = text.charAt(closeIdx + 1);
+                    if (nextChar == ')' || nextChar == '）') {
+                        // 这是引用标记的结尾，不是列表项
+                        return false;
+                    }
+                }
+                
                 String inside = text.substring(1, closeIdx);
                 // 纯数字 (1), (10), (99)
                 if (inside.matches("\\d{1,3}"))
@@ -738,10 +1243,26 @@ public class PdfLayoutAnalyzer {
         // 匹配 a., b., 1., 2. 等点号列表标记
         if (text.matches("^[a-zA-Z0-9][\\.\\.、].*"))
             return true;
+        // 匹配多级章节编号：E2.1., 6.1.2., 1.1., A1.2. 等
+        // 格式：可选字母 + 数字 + (点 + 数字)* + 点
+        if (text.matches("^[A-Za-z]?\\d+(\\.\\d+)*\\.\\s+.*"))
+            return true;
         // 匹配 • - * 等符号列表标记
         if (text.startsWith("•") || text.startsWith("-") || text.startsWith("*"))
             return true;
         return false;
+    }
+    
+    /**
+     * 检测文本是否以多级章节编号开头
+     * 如：E2.1., 6.1.2., 1.1., A1.2., 2.1. 等
+     */
+    private boolean isSectionNumberStart(String text) {
+        if (text == null || text.length() < 3)
+            return false;
+        // 格式：可选字母 + 数字 + (点 + 数字)+ + 点 + 空格
+        // 匹配：E2.1. xxx, 6.1.2. xxx, 1.1. xxx, A1.2. xxx
+        return text.matches("^[A-Za-z]?\\d+(\\.\\d+)+\\.\\s+.*");
     }
 
     private boolean isGlossaryEntry(String text) {
@@ -858,15 +1379,27 @@ public class PdfLayoutAnalyzer {
         if (first == '•' || first == '-' || first == '*')
             return true;
 
-        // Pattern: (xxx) or （xxx） - 括号包围的字母/数字（支持多字符如 (10), (12)）
+        // Pattern: (x) or (xx) - 括号包围的短标记（1-2个字符，如 (a), (1), (10)）
+        // 不匹配缩写词如 (PPBS), (GIG), (USD(I)) 等
         // 支持中英文括号
         if ((first == '(' || first == '（') && text.length() >= 3) {
             int closeIdx = text.indexOf(')');
             if (closeIdx == -1)
                 closeIdx = text.indexOf('）');
-            if (closeIdx > 1 && closeIdx < 10) { // 合理的括号闭合位置
+            if (closeIdx > 1 && closeIdx <= 4) { // 最多3个字符在括号内，如 (10), (aa)
+                // 排除引用续行：如 "(k)), the..." 是 "Reference (k)" 换行后的续行
+                // 这种情况第一个右括号后面紧跟另一个右括号
+                if (closeIdx + 1 < text.length()) {
+                    char nextChar = text.charAt(closeIdx + 1);
+                    if (nextChar == ')' || nextChar == '）') {
+                        // 这是引用标记的结尾，不是列表项
+                        return false;
+                    }
+                }
+                
                 String inside = text.substring(1, closeIdx);
-                if (inside.matches("[a-zA-Z0-9]+")) {
+                // 只匹配：单个字母、单个数字、或最多2位数字
+                if (inside.matches("[a-zA-Z]|\\d{1,2}")) {
                     return true;
                 }
             }

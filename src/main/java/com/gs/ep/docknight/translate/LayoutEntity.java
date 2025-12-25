@@ -3,8 +3,10 @@ package com.gs.ep.docknight.translate;
 import com.gs.ep.docknight.model.ElementGroup;
 import com.gs.ep.docknight.model.RectangleProperties;
 import com.gs.ep.docknight.model.attribute.FirstLineIndent;
+import com.gs.ep.docknight.model.attribute.Height;
 import com.gs.ep.docknight.model.attribute.Left;
 import com.gs.ep.docknight.model.attribute.Top;
+import com.gs.ep.docknight.model.attribute.Width;
 import com.gs.ep.docknight.model.Element;
 import com.gs.ep.docknight.model.element.TextElement;
 
@@ -23,6 +25,7 @@ public class LayoutEntity {
     public final double pageHeight;
     public final boolean isTable;
     public final double firstLineLeft;
+    public final double lastLineRight;  // 最后一行的右边界，用于判断"有空间但没用"
 
     // Cache for expensive text extraction
     private String cachedText;
@@ -66,7 +69,7 @@ public class LayoutEntity {
         this.left = bbox.getLeft();
         this.right = bbox.getRight();
 
-        // Calculate first line indent position
+        // Calculate first line indent position and last line right boundary
         if (!isTable) {
             ElementGroup<Element> textGroup = (ElementGroup<Element>) group;
             if (!textGroup.getElements().isEmpty()) {
@@ -79,11 +82,41 @@ public class LayoutEntity {
                 } else {
                     this.firstLineLeft = this.left;
                 }
+                
+                // 计算最后一行的右边界
+                // 找到 top 值最大的元素（即最后一行的元素）
+                double maxTop = Double.MIN_VALUE;
+                double lastLineRightTemp = this.right;
+                for (Element elem : textGroup.getElements()) {
+                    if (elem.hasAttribute(Top.class)) {
+                        double elemTop = elem.getAttribute(Top.class).getMagnitude();
+                        if (elemTop > maxTop) {
+                            maxTop = elemTop;
+                            // 更新最后一行的右边界
+                            if (elem.hasAttribute(Left.class) && elem.hasAttribute(Width.class)) {
+                                lastLineRightTemp = elem.getAttribute(Left.class).getMagnitude() 
+                                    + elem.getAttribute(Width.class).getMagnitude();
+                            }
+                        } else if (Math.abs(elemTop - maxTop) < 3) {
+                            // 同一行的其他元素，取最大的右边界
+                            if (elem.hasAttribute(Left.class) && elem.hasAttribute(Width.class)) {
+                                double elemRight = elem.getAttribute(Left.class).getMagnitude() 
+                                    + elem.getAttribute(Width.class).getMagnitude();
+                                if (elemRight > lastLineRightTemp) {
+                                    lastLineRightTemp = elemRight;
+                                }
+                            }
+                        }
+                    }
+                }
+                this.lastLineRight = lastLineRightTemp;
             } else {
                 this.firstLineLeft = this.left;
+                this.lastLineRight = this.right;
             }
         } else {
             this.firstLineLeft = this.left;
+            this.lastLineRight = this.right;
         }
     }
 

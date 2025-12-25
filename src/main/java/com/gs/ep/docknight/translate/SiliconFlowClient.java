@@ -145,7 +145,9 @@ public class SiliconFlowClient {
                 System.out.println("✓ Cache hit for: "
                         + texts.get(i).substring(0, Math.min(30, texts.get(i).length())).replaceAll("\\n", " ")
                         + "...");
-                finalResults.add(cached);
+                // 确保缓存的翻译也保留章节编号
+                String preserved = preserveSectionNumber(texts.get(i), cached);
+                finalResults.add(preserved);
             } else {
                 finalResults.add(null); // Placeholder
                 textsToTranslate.add(texts.get(i));
@@ -196,6 +198,8 @@ public class SiliconFlowClient {
         String contextPrompt = buildContextPrompt();
         String systemPrompt = "You are a professional translation engine for technical/official documents. "
                 + "Return ONLY the translated text. NO explanation. NO introductory text. NO quotes. "
+                + "CRITICAL: Preserve ALL section numbers (e.g., 1., 1.1., 6.1.2.), list markers (e.g., (a), (b), (1)), "
+                + "and reference markers EXACTLY as they appear at the start of text. "
                 + "Maintain consistent terminology with previous translations."
                 + contextPrompt;
         
@@ -231,10 +235,41 @@ public class SiliconFlowClient {
             result = normalize(content);
         }
         
+        // 确保章节编号被保留
+        result = preserveSectionNumber(text, result);
+        
         // 添加到上下文历史
         addToContext(text, result);
         
         return result;
+    }
+    
+    /**
+     * 确保翻译结果保留原文的章节编号/列表标记
+     * 如果原文以章节编号开头但翻译结果没有，则补回
+     */
+    private String preserveSectionNumber(String source, String translated) {
+        if (source == null || translated == null) return translated;
+        
+        String trimmedSource = source.trim();
+        String trimmedTranslated = translated.trim();
+        
+        // 检测常见的章节编号模式: 1., 1.1., 6.1.2., 等
+        java.util.regex.Pattern sectionPattern = java.util.regex.Pattern.compile(
+            "^(\\d+(?:\\.\\d+)*\\.?\\s*)"  // 匹配如 "1.", "1.1.", "6.1.2." 后跟空格
+        );
+        
+        java.util.regex.Matcher sourceMatcher = sectionPattern.matcher(trimmedSource);
+        if (sourceMatcher.find()) {
+            String sectionNumber = sourceMatcher.group(1);
+            // 检查翻译是否已包含该章节编号
+            if (!trimmedTranslated.startsWith(sectionNumber.trim())) {
+                // 翻译丢失了章节编号，补回
+                return sectionNumber + trimmedTranslated;
+            }
+        }
+        
+        return translated;
     }
 
     /**
@@ -300,6 +335,7 @@ public class SiliconFlowClient {
         prompt.append("• DO NOT merge consecutive blocks even if they seem related.\n");
         prompt.append("• DO NOT split one block into multiple outputs.\n");
         prompt.append("• Some blocks may be sentence fragments - translate them as-is.\n");
+        prompt.append("• PRESERVE ALL section numbers (1., 1.1., 6.1.2., etc.) and list markers ((a), (b), (1), etc.) EXACTLY.\n");
         prompt.append("• Maintain terminology consistency.\n\n");
         
         prompt.append("INPUT BLOCKS (").append(texts.size()).append(" total):\n");
@@ -321,6 +357,7 @@ public class SiliconFlowClient {
         messages.addObject().put("role", "system").put("content",
                 "You are a strict 1-to-1 translation engine. "
                         + "Input has " + texts.size() + " blocks. Output MUST have " + texts.size() + " translations. "
+                        + "PRESERVE section numbers (1., 1.1., 6.1.2.) and list markers ((a), (b)) EXACTLY as they appear. "
                         + "NEVER merge blocks. NEVER split blocks. Return ONLY valid JSON.");
         messages.addObject().put("role", "user").put("content", prompt.toString());
 
@@ -378,9 +415,11 @@ public class SiliconFlowClient {
             return translateFallbackOneByOne(texts, targetLanguage);
         }
         
-        // 添加翻译结果到上下文历史
+        // 确保章节编号被保留，并添加翻译结果到上下文历史
         for (int i = 0; i < texts.size(); i++) {
-            addToContext(texts.get(i), results.get(i));
+            String preserved = preserveSectionNumber(texts.get(i), results.get(i));
+            results.set(i, preserved);
+            addToContext(texts.get(i), preserved);
         }
         
         return results;

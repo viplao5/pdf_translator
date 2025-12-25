@@ -77,7 +77,6 @@ public class PdfTranslator {
         String docContext = extractDocumentContext(document);
         if (!docContext.isEmpty()) {
             translationClient.setDocumentContext(docContext);
-            System.out.println("Document context set: " + docContext);
         }
 
         // 4. Process each page
@@ -135,15 +134,9 @@ public class PdfTranslator {
         double pageHeight = page.getAttribute(Height.class).getValue().getMagnitude();
         boolean multiColumn = layoutAnalyzer.detectMultiColumn(consolidated, pageWidth, pageHeight);
 
-        System.out.println("--- Final Processing Order ---");
-        for (int i = 0; i < consolidated.size(); i++) {
-            LayoutEntity e = consolidated.get(i);
-            String fullText = layoutAnalyzer.getBlockText(e);
-            String safeText = (fullText.length() > 60) ? fullText.substring(0, 60) + "..." : fullText;
-            safeText = safeText.replace("\n", " ");
-            System.out.printf("[%d] Area: %d, Top: %.1f, Left: %.1f, Bottom: %.1f, Right: %.1f, Text: %s%n",
-                    i, layoutAnalyzer.getReadingArea(e, multiColumn), e.top, e.left, e.bottom, e.right, safeText);
-        }
+        // Detect figure regions (large gaps between text content) and get their boundaries
+        List<double[]> figureRegions = detectFigureRegions(consolidated, pageHeight);
+        
 
         // 2. Translate in reading order
         List<Element> extraElements = new ArrayList<>();
@@ -167,7 +160,7 @@ public class PdfTranslator {
             if (entity.isTable) {
                 translateTable((TabularElementGroup<Element>) entity.group, targetLanguage, page, extraElements);
             } else {
-                applyParagraphTranslation(entity, paraTranslations.get(paraIdx++), pageWidth, pageHeight, multiColumn);
+                applyParagraphTranslation(entity, paraTranslations.get(paraIdx++), pageWidth, pageHeight, multiColumn, figureRegions);
             }
         }
 
@@ -200,21 +193,34 @@ public class PdfTranslator {
     }
 
     private void applyParagraphTranslation(LayoutEntity entity, String translatedText, double pageWidth,
-            double pageHeight, boolean multiColumn) throws Exception {
+            double pageHeight, boolean multiColumn, List<double[]> figureRegions) throws Exception {
         ElementGroup<Element> group = (ElementGroup<Element>) entity.group;
         if (translatedText.trim().isEmpty())
             return;
 
         RectangleProperties<Double> bbox = group.getTextBoundingBox();
-        double left = bbox.getLeft();
-        double right = bbox.getRight();
+        // 记录段落的整体边界（所有行的最小左边界、最大右边界）
+        double overallLeft = bbox.getLeft();  // 整体最左边界
+        double overallRight = bbox.getRight(); // 整体最右边界
         double top = bbox.getTop();
         double bottom = bbox.getBottom();
-        double originalWidth = right - left;
-        double centerX = (left + right) / 2.0;
+        
+        // 记录首行位置（可能有缩进）
+        double firstLineLeft = entity.firstLineLeft;
+        
+        // 关键修改：段落左边界使用整体左边界，首行缩进通过 FirstLineIndent 属性实现
+        // 这样：首行从 firstLineLeft 开始，后续行从 overallLeft 开始
+        double left = overallLeft;
+        double right = overallRight;
+        double originalWidth = overallRight - overallLeft;
+        double centerX = (overallLeft + overallRight) / 2.0;
+        
+        // 保存原始位置用于调试
+        double origLeft = overallLeft, origRight = overallRight, origTop = top, origBottom = bottom;
 
-        // 计算首行缩进：首行起始位置 - 段落最左边界
-        double calculatedFirstLineIndent = entity.firstLineLeft - left;
+        // 计算首行缩进（相对于整体左边界）
+        // 正值表示首行比后续行更靠右（如 "a. xxx" 的缩进）
+        double calculatedFirstLineIndent = firstLineLeft - overallLeft;
 
         // Detect horizontal alignment intent
         // TOC Heuristic: Lines with leader dots "...." are almost always Left Aligned
@@ -236,14 +242,24 @@ public class PdfTranslator {
 
         // Center: Geometrically centered content - 使用对称边距检测
         // 真正居中的内容应该：1) 左右边距对称 2) 不是列表项 3) 不是从页面左边缘开始
-        double leftMargin = left;
-        double rightMargin = pageWidth - right;
-        // 对称居中检测条件收紧：
-        // 1. 左右边距差异小于 15pt
-        // 2. 左边距大于 100pt（明显居中，排除标准文档边距 ~72pt 的内容）
-        // 3. 或者内容较短（< 40% 页宽，适合标题）
-        boolean isSymmetricallyCentered = Math.abs(leftMargin - rightMargin) < 15
-                && (leftMargin > 100 || originalWidth < pageWidth * 0.4);
+        // 使用整体边界进行居中检测（而不是首行位置）
+        double leftMargin = overallLeft;
+        double rightMargin = pageWidth - overallRight;
+        
+        // 关键：从标准左边距开始的段落（left < 80pt）不是居中的
+        // 这种段落即使延伸到接近右边距，也只是正常的左对齐段落
+        boolean startsFromStandardMargin = leftMargin < 80;
+        
+        // 居中检测条件：
+        // 条件1: 左右边距差异小于 15pt，且满足以下任一条件：
+        //   a) 左边距大于 100pt（明显居中）
+        //   b) 内容较短（< 40% 页宽，适合短标题）且不从标准边距开始
+        //   c) 左右边距都大于 100pt 且差异很小（< 10pt），适合宽标题
+        boolean marginsSymmetric = Math.abs(leftMargin - rightMargin) < 15;
+        // 提高 verySymmetric 的阈值：左右边距都需要 > 100pt
+        boolean verySymmetric = Math.abs(leftMargin - rightMargin) < 10 && leftMargin > 100 && rightMargin > 100;
+        boolean isSymmetricallyCentered = marginsSymmetric && !startsFromStandardMargin
+                && (leftMargin > 100 || originalWidth < pageWidth * 0.4 || verySymmetric);
 
         boolean isCentered = !isTOCLine && !isListItem && originalWidth > pageWidth * 0.15
                 && isSymmetricallyCentered;
@@ -257,11 +273,26 @@ public class PdfTranslator {
         }
 
         // Right: Geometrically flush right (allow some margin)
-        boolean isRightAligned = !isTOCLine && !isCentered && right > pageWidth * 0.85 && left > pageWidth * 0.3;
+        // 关键修复：对于双栏布局，右栏的内容不应被误认为右对齐
+        // 右栏的特征是：left 在页面中间附近（约 50%），内容从左向右正常排列
+        // 真正的右对齐是：页眉/页脚等短文本，位于页面右上角或右下角
+        
+        // 计算 area 以判断是否是右栏内容
+        int areaForAlignment = layoutAnalyzer.getReadingArea(new LayoutEntity(group, pageWidth, pageHeight), multiColumn);
+        
+        // 双栏右栏判断：area=1 说明是右栏内容，或者 left 在典型的右栏起始位置
+        boolean isRightColumnContent = multiColumn && (areaForAlignment == 1 
+                || (left > pageWidth * 0.48 && left < pageWidth * 0.65));
+        
+        // 真正的右对齐：不是右栏内容，内容窄，且位于页面右侧
+        // 通常是页眉、页脚中的日期、页码等
+        boolean isRightAligned = !isTOCLine && !isCentered && !isRightColumnContent 
+                && right > pageWidth * 0.85 && left > pageWidth * 0.5
+                && (right - left) < pageWidth * 0.4;  // 右对齐内容通常很窄
 
-        // Hierarchical List Item Detection and Indent Enforcement
+        // Hierarchical List Item Detection - 用于样式处理，但不强制修改位置
         // Level 1: a. | A. | • | - | 一、| 二、 -> 一级列表项
-        // Level 2: (1) | (a) | （1）| （2） -> 二级列表项（更深缩进）
+        // Level 2: (1) | (a) | （1）| （2） -> 二级列表项
         // 使用 (?s) 让 .* 匹配多行文本，支持中英文标点
         String trimmedText = translatedText.trim();
         boolean isLevel1 = LEVEL_1_PATTERN.matcher(trimmedText).matches();
@@ -273,7 +304,7 @@ public class PdfTranslator {
         // possible
         int area = layoutAnalyzer.getReadingArea(new LayoutEntity(group, pageWidth, pageHeight), multiColumn);
 
-        // 计算基准左边距
+        // 计算基准左边距（仅用于边界检查，不强制覆盖原始位置）
         double baseLeft = 0;
         if (area == 1) { // Right column
             baseLeft = pageWidth * 0.52;
@@ -281,24 +312,36 @@ public class PdfTranslator {
             baseLeft = 60.0;
         }
 
-        // 记录是否已强制设置了列表缩进
-        boolean listIndentApplied = false;
-
+        // 不再强制设置列表项缩进，而是保持原始位置
+        // 原始的 left 值已经包含了正确的位置信息
+        // 只有当原始位置明显异常时才调整（如位置过于靠左或超出列边界）
         if (isHierarchicalListItem) {
-            // Enforce indentation hierarchy to fix incorrect source bboxes
-            if (isLevel2) {
-                // Level 2: Base + 48pt (二级列表项缩进)
-                left = baseLeft + 48.0;
-                listIndentApplied = true;
-            } else if (isLevel1) {
-                // Level 1: Base + 12pt (一级列表项缩进)
-                left = baseLeft + 12.0;
-                listIndentApplied = true;
+            // 对于列表项，确保位置在合理范围内，但不强制修改
+            // 如果原始位置已经在合理范围内，保持不变
+            if (area == 1 && left < baseLeft) {
+                // 右列的列表项，确保不超出左边界
+                left = Math.max(left, baseLeft);
             }
+            // 其他情况保持原始位置
         }
 
-        // 只有在未强制设置列表缩进时才调整边距
-        if (!listIndentApplied) {
+        // 调整边距（对所有内容类型）
+        // 检测是否是"窄块"：原始宽度小于页面宽度的 60%，可能是与其他内容并排的
+        boolean isNarrowBlock = originalWidth < pageWidth * 0.6;
+        // 检测是否是"短行"：单行内容，高度较小
+        boolean isShortLine = (bottom - top) < 15;
+        
+        // 判断是否真正与其他内容并排（如标题行的多个部分）
+        // 并排块的特征：不从页面左边距开始，或不到达页面右边距
+        // 独立段落：从左边距开始（left < 120pt），即使宽度较窄也应该允许扩展
+        boolean startsFromLeftMargin = overallLeft < 120;
+        boolean endsNearRightMargin = overallRight > pageWidth * 0.75;
+        boolean isStandaloneParagraph = startsFromLeftMargin || endsNearRightMargin;
+        
+        // 只有真正并排的窄块才限制宽度（不从左边距开始，且不到达右边距）
+        boolean preserveOriginalWidth = isNarrowBlock && isShortLine && !isCentered && !isStandaloneParagraph;
+        
+        {
             if (isCentered) {
                 // 居中内容：使用对称的页面边距，让 TextAlign.CENTRE 生效
                 double margin = 60.0;
@@ -313,16 +356,23 @@ public class PdfTranslator {
                 double neededWidth = translatedText.length() * estimatedFontSize * 0.9 + 20;
                 double currentWidth = right - left;
 
-                System.out.printf("  -> Right-aligned: need=%.1f, current=%.1f, fontSize=%.1f%n",
-                        neededWidth, currentWidth, estimatedFontSize);
-
                 if (neededWidth > currentWidth) {
                     // 需要更多宽度，向左扩展
                     double newLeft = Math.max(60.0, right - neededWidth);
                     left = newLeft;
-                    System.out.printf("  -> Expanded left from %.1f to %.1f%n", entity.left, left);
                 }
                 // 保持原始右边界（右对齐）
+            } else if (preserveOriginalWidth) {
+                // 窄块短行：保持原始宽度，只做最小调整
+                // 这种情况通常是标题行的一部分，与其他内容并排
+                // 不扩展右边界，保持原始宽度
+                // 只确保有足够宽度容纳翻译后的文本
+                double estimatedFontSize = Math.max(9.0, bottom - top);
+                double neededWidth = translatedText.length() * estimatedFontSize * 0.8 + 10;
+                if (neededWidth > originalWidth) {
+                    // 需要更多宽度，适度扩展但不要太过
+                    right = Math.min(left + neededWidth, pageWidth * 0.92);
+                }
             } else if (multiColumn) {
                 // Strict column boundaries for narrow multi-column content
                 if (area == 0 && right < pageWidth * 0.55) {
@@ -349,9 +399,6 @@ public class PdfTranslator {
                 }
                 right = pageWidth * 0.92;
             }
-        } else {
-            // 列表项已设置缩进，只调整右边界
-            right = pageWidth * 0.92;
         }
 
         if (isListItem) {
@@ -374,18 +421,15 @@ public class PdfTranslator {
 
         // 如果没有找到文本元素，跳过此段落的翻译
         if (textElement == null) {
-            System.out.println("  -> Skipping: No text element found in group (may be image-only)");
             return;
         }
 
-        // 检测混合样式情况：如果段落以标签开头（如 "Purpose:", "Note:"），且第一个元素是粗体，
-        // 通常只有标签部分是粗体，需要移除粗体以避免整个翻译段落都变成粗体
-        // 使用原始文本检测标签模式
+        // 检测混合样式情况：如果段落中既有粗体又有非粗体元素，
+        // 说明只有部分内容是粗体（如术语定义 "property loss. Defined in..."）
+        // 需要移除粗体以避免整个翻译段落都变成粗体
         String originalText = layoutAnalyzer.getBlockText(entity);
-        // 常见的标签模式：以冒号结尾的单词开头（如 "Purpose:", "Note:", "Warning:"）
-        boolean startsWithLabel = LABEL_PATTERN.matcher(originalText).matches();
-
-        if (startsWithLabel && textElement.hasAttribute(TextStyles.class)) {
+        
+        if (textElement.hasAttribute(TextStyles.class)) {
             List<String> firstStyles = textElement.getAttribute(TextStyles.class).getValue();
             if (firstStyles != null && firstStyles.contains(TextStyles.BOLD)) {
                 // 统计段落中粗体和非粗体文本元素的数量
@@ -406,18 +450,23 @@ public class PdfTranslator {
                     }
                 }
 
-                System.out.printf("  -> Label detected: '%s', Bold=%d, NonBold=%d%n",
-                        originalText.substring(0, Math.min(20, originalText.length())), boldCount, nonBoldCount);
-
-                // 如果非粗体元素存在，说明是混合样式，移除粗体
-                if (nonBoldCount > 0) {
+                // 检测术语定义格式：以 "术语. 定义内容" 开头
+                // 如 "reconciliation. Defined in..." 或 "SNaP-IT. The electronic..."
+                // 这种格式中，只有术语部分应该是粗体
+                boolean isDefinitionFormat = originalText.matches("(?s)^[a-zA-Z][a-zA-Z0-9\\-]*\\.\\s+[A-Z].*");
+                // 或者以冒号分隔的标签格式
+                boolean isLabelFormat = LABEL_PATTERN.matcher(originalText).matches();
+                
+                // 如果是混合样式，或者是术语定义/标签格式，移除粗体
+                boolean shouldRemoveBold = nonBoldCount > 0 || isDefinitionFormat || isLabelFormat;
+                
+                if (shouldRemoveBold) {
                     List<String> newStyles = Lists.mutable.ofAll(firstStyles);
                     newStyles.remove(TextStyles.BOLD);
                     textElement.removeAttribute(TextStyles.class);
                     if (!newStyles.isEmpty()) {
                         textElement.addAttribute(new TextStyles(newStyles));
                     }
-                    System.out.println("  -> Removed BOLD from label paragraph, preserving normal style");
                 }
             }
         }
@@ -437,26 +486,73 @@ public class PdfTranslator {
                 || TOC_DOTS_PATTERN.matcher(translatedText).matches();
 
         double height;
-        if (isTOCEntry) {
+        double originalHeight = bottom - top;
+        
+        // 检测紧凑单行项：原始高度小于等于 lineHeight，且翻译后文本较短
+        // 这类项目（如 E1. 参考文献, E2. 定义, 附件 - 9）不应大幅增加高度
+        // 不仅限于列表项，任何原始高度很小的短文本都应该保守处理
+        boolean isCompactItem = originalHeight <= lineHeight * 1.2 
+                && translatedText.length() < 30;
+        
+        if (preserveOriginalWidth) {
+            // 窄块短行（如标题行的一部分）：保持原始高度或只做最小扩展
+            // 避免覆盖下方内容
+            // 使用原始高度 + 小量填充，但不超过 lineHeight * 1.5
+            height = Math.max(originalHeight + 5, lineHeight);
+            height = Math.min(height, Math.max(originalHeight + 10, lineHeight * 1.5));
+        } else if (isTOCEntry) {
             // 目录条目：使用基于字体大小的固定行高，避免合并后的条目字体变大
             // 单行目录条目的标准高度约为 lineHeight (字体大小 * 1.4)
             height = Math.max(lineHeight, 15);
+        } else if (isCompactItem) {
+            // 紧凑单行项：只做最小高度扩展，避免覆盖下方相邻项
+            height = Math.max(originalHeight + 5, lineHeight);
         } else {
             // 普通段落：估算需要的行数
-            double avgCharWidth = estimatedFontSize * 0.8;
+            // 注意：中文字符宽度约等于字体大小，比英文宽
+            boolean hasChinese = translatedText.matches(".*[\\u4e00-\\u9fa5].*");
+            double avgCharWidth = hasChinese ? estimatedFontSize * 1.0 : estimatedFontSize * 0.6;
             int estimatedCharsPerLine = Math.max(1, (int) (width / avgCharWidth));
             int estimatedLines = Math.max(1, (int) Math.ceil((double) translatedText.length() / estimatedCharsPerLine));
 
-            // 计算估算高度，确保有足够空间
-            double estimatedHeight = estimatedLines * lineHeight + 10;
+            // 计算估算高度
+            double estimatedHeight = estimatedLines * lineHeight + 5;
 
-            // 取原始高度+填充和估算高度的较大值
-            height = Math.max(Math.max(15, (bottom - top) + 25), estimatedHeight);
+            // 对于列表项，平衡空间利用和避免覆盖
+            if (isListItem) {
+                // 列表项：使用估算高度，但限制最大增加量
+                // 这样可以确保翻译后的文本有足够空间，同时避免过度膨胀
+                double listItemHeight;
+                if (estimatedHeight > originalHeight) {
+                    // 翻译后需要更多空间，使用估算高度但不超过原始高度 + 一行
+                    listItemHeight = Math.min(estimatedHeight, originalHeight + lineHeight);
+                } else {
+                    // 翻译后更短或相同，保持原始高度 + 小量填充
+                    listItemHeight = originalHeight + 3;
+                }
+                height = Math.max(15, listItemHeight);
+            } else {
+                // 普通段落：取原始高度+填充和估算高度的较大值
+                height = Math.max(Math.max(15, originalHeight + 25), estimatedHeight);
+            }
         }
 
-        System.out.printf("Paragraph (Area %d) bbox: L=%.1f, T=%.1f, W=%.1f, H=%.1f, Text: %s%n",
-                area, left, top, width, height,
-                (translatedText.length() > 20 ? translatedText.substring(0, 20) : translatedText));
+        // 检查是否会进入图片区域，如果会则约束高度
+        double finalBottom = top + height;
+        for (double[] region : figureRegions) {
+            double figureTop = region[0];
+            double figureBottom = region[1];
+            // 如果文本块在图片上方且会延伸进入图片区域
+            if (top < figureTop && finalBottom > figureTop && origBottom <= figureTop + 5) {
+                // 约束高度，确保不进入图片区域（留5pt间距）
+                double constrainedHeight = figureTop - top - 5;
+                if (constrainedHeight > originalHeight * 0.8) { // 至少保留原始高度的80%
+                    height = constrainedHeight;
+                    finalBottom = top + height;
+                }
+                break;
+            }
+        }
 
         updateText(textElement, translatedText);
 
@@ -468,13 +564,13 @@ public class PdfTranslator {
         }
 
         // 应用首行缩进：当首行相对于段落左边界有明显缩进时（>2pt）
-        // 但不应用于居中、右对齐或列表项（列表项使用整体缩进而非首行缩进）
+        // 适用于列表项（如 "a. xxx"）- 首行从缩进位置开始，后续行从左边距开始
+        // 不应用于居中、右对齐内容
         double effectiveFirstLineIndent = 0;
-        if (!isCentered && !isRightAligned && !isHierarchicalListItem && calculatedFirstLineIndent > 2.0) {
+        if (!isCentered && !isRightAligned && calculatedFirstLineIndent > 2.0) {
             effectiveFirstLineIndent = calculatedFirstLineIndent;
             textElement.removeAttribute(FirstLineIndent.class);
             textElement.addAttribute(new FirstLineIndent(new Length(effectiveFirstLineIndent, Length.Unit.pt)));
-            System.out.printf("  -> Applied FirstLineIndent: %.1fpt%n", effectiveFirstLineIndent);
         }
 
         // Update text element to cover the entire paragraph area
@@ -504,29 +600,77 @@ public class PdfTranslator {
         int rowCount = table.numberOfRows();
         int colCount = table.numberOfColumns();
 
-        // 1. Row/Col boundaries
+        // 1. Row/Col boundaries - 使用表格的实际单元格边界，而不仅仅是文本边界框
         org.eclipse.collections.api.tuple.Pair<double[], double[]> colBounds = table.getColumnBoundaries();
         double[] colLefts = colBounds.getOne();
         double[] colRights = colBounds.getTwo();
 
+        // 计算行边界 - 使用所有单元格元素的完整边界，而非仅文本边界
         double[] rowTops = new double[rowCount];
         double[] rowBottoms = new double[rowCount];
+        
+        // 首先收集每行所有元素的边界
         for (int r = 0; r < rowCount; r++) {
             double minT = Double.MAX_VALUE, maxB = Double.MIN_VALUE;
             boolean hasContent = false;
             for (int c = 0; c < colCount; c++) {
                 TabularCellElementGroup<Element> cell = table.getMergedCell(r, c);
                 if (!cell.getElements().isEmpty()) {
-                    RectangleProperties<Double> cBox = cell.getTextBoundingBox();
-                    minT = Math.min(minT, cBox.getTop());
-                    maxB = Math.max(maxB, cBox.getBottom());
-                    hasContent = true;
+                    // 使用每个元素的 Top 和 Height 来计算精确边界
+                    for (Element elem : cell.getElements()) {
+                        if (elem.hasAttribute(Top.class)) {
+                            double elemTop = elem.getAttribute(Top.class).getMagnitude();
+                            double elemHeight = elem.hasAttribute(Height.class) 
+                                ? elem.getAttribute(Height.class).getMagnitude() : 12.0;
+                            minT = Math.min(minT, elemTop);
+                            maxB = Math.max(maxB, elemTop + elemHeight);
+                            hasContent = true;
+                        }
+                    }
                 }
             }
             rowTops[r] = hasContent ? minT : (r > 0 ? rowBottoms[r - 1] : 0);
             rowBottoms[r] = hasContent ? maxB : (r > 0 ? rowBottoms[r - 1] + 20 : 20);
         }
-
+        
+        // 确保行边界之间有合理的间距，避免重叠
+        for (int r = 1; r < rowCount; r++) {
+            if (rowTops[r] < rowBottoms[r - 1]) {
+                // 行之间有重叠，调整为使用上一行底部作为当前行顶部
+                double midPoint = (rowTops[r] + rowBottoms[r - 1]) / 2.0;
+                rowBottoms[r - 1] = midPoint;
+                rowTops[r] = midPoint;
+            }
+        }
+        
+        // 保护表格边框：检查表格的实际边界，确保最后一行底部不会截断底部边框
+        // 获取表格的整体边界（包括边框）
+        double tableMinTop = Double.MAX_VALUE;
+        double tableMaxBottom = Double.MIN_VALUE;
+        for (int r = 0; r < rowCount; r++) {
+            for (int c = 0; c < colCount; c++) {
+                TabularCellElementGroup<Element> cell = table.getMergedCell(r, c);
+                // 检查单元格是否有底部边框
+                RectangleProperties<Boolean> borders = cell.getBorderExistence();
+                if (borders.getBottom() && !cell.getElements().isEmpty()) {
+                    // 有底部边框的单元格，需要确保底部边界包含边框
+                    RectangleProperties<Double> cellBox = cell.getTextBoundingBox();
+                    // 为边框线预留空间（约 2-3pt）
+                    tableMaxBottom = Math.max(tableMaxBottom, cellBox.getBottom() + 3.0);
+                }
+                if (!cell.getElements().isEmpty()) {
+                    RectangleProperties<Double> cellBox = cell.getTextBoundingBox();
+                    tableMinTop = Math.min(tableMinTop, cellBox.getTop());
+                    tableMaxBottom = Math.max(tableMaxBottom, cellBox.getBottom());
+                }
+            }
+        }
+        
+        // 如果最后一行的底部边界小于表格实际底部（包括边框），则扩展
+        if (rowCount > 0 && tableMaxBottom > rowBottoms[rowCount - 1]) {
+            rowBottoms[rowCount - 1] = tableMaxBottom;
+        }
+        
         // 2. Identify and group cells for integrated translation
         // Map from master cell -> its associated logical text/state
         Map<TabularCellElementGroup<Element>, String> cellToJoinedText = new HashMap<>();
@@ -615,25 +759,33 @@ public class PdfTranslator {
                 }
 
                 // Join text for the chain
-                Element prevElem = null;
+                // 同一单元格内的多行文本应使用空格连接（作为一个整体翻译）
+                // 只有跨单元格合并时才使用换行分隔
                 for (TabularCellElementGroup<Element> chainCell : chain) {
                     StringBuilder cellSb = new StringBuilder();
+                    Element prevElemInCell = null;
                     for (Element e : chainCell.getElements()) {
                         if (e.hasAttribute(Text.class)) {
-                            if (prevElem != null) {
-                                double vGap = e.getAttribute(Top.class).getMagnitude()
-                                        - (prevElem.getAttribute(Top.class).getMagnitude()
-                                                + prevElem.getAttribute(Height.class).getMagnitude());
-                                cellSb.append(vGap > 5 ? "\n\n" : " ");
+                            String textVal = e.getAttribute(Text.class).getValue();
+                            if (textVal == null || textVal.trim().isEmpty()) continue;
+                            
+                            if (prevElemInCell != null && cellSb.length() > 0) {
+                                // 同一单元格内的多行文本使用空格连接
+                                // 确保不会重复添加空格
+                                if (!cellSb.toString().endsWith(" ") && !textVal.startsWith(" ")) {
+                                    cellSb.append(" ");
+                                }
                             }
-                            cellSb.append(e.getAttribute(Text.class).getValue());
-                            prevElem = e;
+                            cellSb.append(textVal.trim());
+                            prevElemInCell = e;
                         }
                     }
                     String t = cellSb.toString().trim();
                     if (!t.isEmpty()) {
-                        if (sb.length() > 0)
-                            sb.append("\n\n"); // Chain cells usually separate logical blocks if vertically merged
+                        if (sb.length() > 0) {
+                            // 跨单元格（垂直合并的不同行）使用换行分隔
+                            sb.append("\n");
+                        }
                         sb.append(t);
                     }
                 }
@@ -741,5 +893,46 @@ public class PdfTranslator {
             element.removeAttribute(Text.class);
             element.addAttribute(new Text(translatedText));
         }
+    }
+    
+    /**
+     * 检测页面中的图形区域（文本间的大间隙）
+     * 这些区域可能包含矢量图形（流程图、图表等），这些图形可能不会在输出中正确渲染
+     * @return 图形区域列表，每个区域是 double[]{top, bottom}
+     */
+    private List<double[]> detectFigureRegions(List<LayoutEntity> entities, double pageHeight) {
+        List<double[]> regions = new ArrayList<>();
+        if (entities.size() < 2) return regions;
+        
+        // 按垂直位置排序
+        List<LayoutEntity> sorted = new ArrayList<>(entities);
+        sorted.sort((a, b) -> Double.compare(a.top, b.top));
+        
+        double minGapForFigure = 100.0; // 至少 100pt 的间隙才认为是图形区域
+        
+        for (int i = 0; i < sorted.size() - 1; i++) {
+            LayoutEntity current = sorted.get(i);
+            LayoutEntity next = sorted.get(i + 1);
+            
+            double gap = next.top - current.bottom;
+            
+            if (gap > minGapForFigure) {
+                // 检查下一个元素是否是图片标题（Figure X. 或 图X.）
+                String nextText = layoutAnalyzer.getBlockText(next).trim().toLowerCase();
+                boolean isFigureCaption = nextText.startsWith("figure ") || 
+                                         nextText.startsWith("fig.") || 
+                                         nextText.startsWith("图") ||
+                                         nextText.matches("^图\\s*\\d+.*");
+                
+                if (isFigureCaption || gap > 200) {
+                    // 记录图形区域边界
+                    // 注意：PDFDocumentStripper.renderRegionAsImage 会给图片顶部添加 15pt 边距
+                    // 所以这里的图形区域顶部也要加上这个边距，避免不必要的高度约束
+                    double figureTopMargin = 15.0;
+                    regions.add(new double[]{current.bottom + figureTopMargin, next.top});
+                }
+            }
+        }
+        return regions;
     }
 }

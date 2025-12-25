@@ -1347,8 +1347,6 @@ public class PDFDocumentStripper extends PDFTextStripper {
             Image figureImage = renderRegionAsImage(pageIndex, currentBottom, nextTop);
             if (figureImage != null) {
               this.images.add(figureImage);
-              LOGGER.info("Figure region rendered: top={}, bottom={}, height={}", 
-                  currentBottom, nextTop, gap);
             }
           } catch (Exception e) {
             LOGGER.warn("Failed to render figure region: {}", e.getMessage());
@@ -1368,8 +1366,13 @@ public class PDFDocumentStripper extends PDFTextStripper {
       float scale = 150f / 72f; // 150 DPI
       BufferedImage fullPageImage = renderer.renderImage(pageIndex, scale);
       
+      // 给顶部添加边距，避免包含上方文本的一部分
+      // 文本元素的底部边界可能不精确，所以我们需要留一些空间
+      double topMargin = 15.0; // 15pt 边距
+      double adjustedTop = top + topMargin;
+      
       // 计算要裁剪的区域（考虑缩放）
-      int imgTop = (int) (top * scale);
+      int imgTop = (int) (adjustedTop * scale);
       int imgBottom = (int) (bottom * scale);
       int imgHeight = imgBottom - imgTop;
       
@@ -1381,12 +1384,12 @@ public class PDFDocumentStripper extends PDFTextStripper {
       BufferedImage croppedImage = fullPageImage.getSubimage(
           0, imgTop, fullPageImage.getWidth(), imgHeight);
       
-      // 创建Image元素
-      double regionHeight = bottom - top;
+      // 创建Image元素 - 使用调整后的顶部位置
+      double regionHeight = bottom - adjustedTop;
       double regionWidth = this.pageWidth;
       
       Image image = new Image();
-      image.add(new Top(new Length(top, Unit.pt)));
+      image.add(new Top(new Length(adjustedTop, Unit.pt))); // 使用调整后的顶部位置
       image.add(new Left(new Length(0, Unit.pt)));
       image.add(new Width(new Length(regionWidth, Unit.pt)));
       image.add(new Height(new Length(regionHeight, Unit.pt)));
