@@ -88,7 +88,8 @@ class GraphicsExtractor extends PDFGraphicsStreamEngine {
   private static final double DISTINCT_EPSILON = 0.01;
   private static final double THRESHOLD = 5;
   private static final double MAX_THRESHOLD_FOR_FORM_IMAGE = 30;
-  private static final double MAX_IMAGE_BY_PAGE_AREA_RATIO = 0.25;
+  // 允许最多占页面 60% 的图片被提取（支持较大的图表/流程图）
+  private static final double MAX_IMAGE_BY_PAGE_AREA_RATIO = 0.60;
   private static final double SCANNED_PAGE_IMAGE_BY_PAGE_AREA_RATIO = 0.9;
   private static final double MIN_SLOPE_VERTICAL_LINE = 5.67;  // tan(80 degree)
   private static final double MAX_SLOPE_HORIZONTAL_LINE = 0.18;  // tan(10 degree)
@@ -426,6 +427,13 @@ class GraphicsExtractor extends PDFGraphicsStreamEngine {
   }
 
   public List<Image> getImages() {
+    // 如果有实际被添加的图片，即使总图像面积较大也返回它们
+    // 这允许包含图表/流程图的页面正常处理
+    // 只有当图片列表为空且总图像面积很大时，才认为是纯扫描页面
+    if (!this.images.isEmpty()) {
+      return this.images;
+    }
+    // 没有被添加的图片，检查是否是扫描页面（大面积图像覆盖）
     return this.totalImageArea / this.pageArea < SCANNED_PAGE_IMAGE_BY_PAGE_AREA_RATIO ? this.images
         : Lists.mutable.empty();
   }
@@ -461,6 +469,12 @@ class GraphicsExtractor extends PDFGraphicsStreamEngine {
     double imageArea = imageHeight * imageWidth;
     Point2D imageXY = this.adjustedPage.getXYAdj(matrix.getTranslateX(), matrix.getTranslateY());
     this.totalImageArea += imageArea;
+    
+    // Debug: log image detection
+    double ratio = imageArea / this.pageArea;
+    // LOGGER.debug("drawImage: size={}x{}, pos=({},{}), ratio={:.2f}%, threshold={:.2f}%",
+    //     imageWidth, imageHeight, imageXY.getX(), imageXY.getY(), 
+    //     ratio * 100, MAX_IMAGE_BY_PAGE_AREA_RATIO * 100);
 
     if (imageArea / this.pageArea <= MAX_IMAGE_BY_PAGE_AREA_RATIO && imageHeight >= THRESHOLD
         && imageWidth >= THRESHOLD) {
@@ -480,6 +494,8 @@ class GraphicsExtractor extends PDFGraphicsStreamEngine {
         }
       }
       this.images.add(image);
+      // LOGGER.info("Image added: size={}x{}, top={}", imageWidth, imageHeight, 
+      //     this.pageHeight - imageXY.getY() - imageHeight);
     } else if (imageHeight < 2 * THRESHOLD && imageWidth < 2 * THRESHOLD && this.settings
         .isImageBasedCharDetection())  // look for image based characters
     {

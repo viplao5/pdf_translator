@@ -97,6 +97,11 @@ import org.apache.pdfbox.contentstream.operator.color.SetStrokingDeviceRGBColor;
 import org.apache.pdfbox.cos.COSBase;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
+import org.apache.pdfbox.rendering.PDFRenderer;
+import java.awt.image.BufferedImage;
+import com.gs.ep.docknight.model.ComparableBufferedImage;
+import com.gs.ep.docknight.model.attribute.ImageData;
+import com.gs.ep.docknight.model.element.Image;
 import org.apache.pdfbox.pdmodel.font.PDCIDFont;
 import org.apache.pdfbox.pdmodel.font.PDCIDFontType2;
 import org.apache.pdfbox.pdmodel.font.PDFont;
@@ -1236,7 +1241,12 @@ public class PDFDocumentStripper extends PDFTextStripper {
 
     this.processPage();
 
-    if (this.textElements.isEmpty() && this.otherElements.isEmpty()) {
+    // 检测并渲染图形区域（文本间的大间隙，可能包含矢量图形）
+    detectAndRenderFigureRegions();
+    
+    // 只有当页面没有文本、没有图片、没有其他元素时才认为是"仅图像"页面
+    // 如果有图片元素（如图表、流程图），不应该被视为扫描PDF
+    if (this.textElements.isEmpty() && this.images.isEmpty() && this.otherElements.isEmpty()) {
       this.numOfPagesWithImagesOnly++;
       this.settings.getBadPageSignaler().accept(this.pages.size());
     }
@@ -1289,6 +1299,104 @@ public class PDFDocumentStripper extends PDFTextStripper {
     double right = left + element.getAttributeValue(Width.class, Length.ZERO).getMagnitude();
     double bottom = top + element.getAttributeValue(Height.class, Length.ZERO).getMagnitude();
     return left <= this.pageWidth && top <= this.pageHeight && right >= 0 && bottom >= 0;
+  }
+  
+  /**
+   * 检测页面中的图形区域（文本间的大间隙）并从原始PDF渲染为图像
+   * 这允许矢量图形（流程图、图表等）被正确保留
+   */
+  private void detectAndRenderFigureRegions() {
+    if (this.textElements.isEmpty() || this.pdDocument == null) {
+      return;
+    }
+    
+    // 按top位置排序文本元素
+    MutableList<Element> sorted = Lists.mutable.withAll(this.textElements);
+    sorted.sortThis((a, b) -> {
+      double topA = a.getAttribute(Top.class).getMagnitude();
+      double topB = b.getAttribute(Top.class).getMagnitude();
+      return Double.compare(topA, topB);
+    });
+    
+    double minGapForFigure = 100.0; // 至少100pt的间隙才认为是图形区域
+    int pageIndex = this.pages.size(); // 当前页面索引
+    
+    for (int i = 0; i < sorted.size() - 1; i++) {
+      Element current = sorted.get(i);
+      Element next = sorted.get(i + 1);
+      
+      double currentBottom = current.getAttribute(Top.class).getMagnitude() 
+          + current.getAttributeValue(Height.class, Length.ZERO).getMagnitude();
+      double nextTop = next.getAttribute(Top.class).getMagnitude();
+      double gap = nextTop - currentBottom;
+      
+      if (gap > minGapForFigure) {
+        // 检查下一个元素是否是图片标题
+        String nextText = "";
+        if (next.hasAttribute(Text.class)) {
+          nextText = next.getAttribute(Text.class).getValue().trim().toLowerCase();
+        }
+        boolean isFigureCaption = nextText.startsWith("figure ") || 
+                                 nextText.startsWith("fig.") || 
+                                 nextText.startsWith("图") ||
+                                 nextText.matches("^图\\s*\\d+.*");
+        
+        if (isFigureCaption || gap > 150) {
+          // 渲染这个区域为图像
+          try {
+            Image figureImage = renderRegionAsImage(pageIndex, currentBottom, nextTop);
+            if (figureImage != null) {
+              this.images.add(figureImage);
+              LOGGER.info("Figure region rendered: top={}, bottom={}, height={}", 
+                  currentBottom, nextTop, gap);
+            }
+          } catch (Exception e) {
+            LOGGER.warn("Failed to render figure region: {}", e.getMessage());
+          }
+        }
+      }
+    }
+  }
+  
+  /**
+   * 将PDF页面的指定区域渲染为图像
+   */
+  private Image renderRegionAsImage(int pageIndex, double top, double bottom) {
+    try {
+      PDFRenderer renderer = new PDFRenderer(this.pdDocument);
+      // 以150 DPI渲染整个页面
+      float scale = 150f / 72f; // 150 DPI
+      BufferedImage fullPageImage = renderer.renderImage(pageIndex, scale);
+      
+      // 计算要裁剪的区域（考虑缩放）
+      int imgTop = (int) (top * scale);
+      int imgBottom = (int) (bottom * scale);
+      int imgHeight = imgBottom - imgTop;
+      
+      if (imgHeight <= 0 || imgTop < 0 || imgBottom > fullPageImage.getHeight()) {
+        return null;
+      }
+      
+      // 裁剪图像
+      BufferedImage croppedImage = fullPageImage.getSubimage(
+          0, imgTop, fullPageImage.getWidth(), imgHeight);
+      
+      // 创建Image元素
+      double regionHeight = bottom - top;
+      double regionWidth = this.pageWidth;
+      
+      Image image = new Image();
+      image.add(new Top(new Length(top, Unit.pt)));
+      image.add(new Left(new Length(0, Unit.pt)));
+      image.add(new Width(new Length(regionWidth, Unit.pt)));
+      image.add(new Height(new Length(regionHeight, Unit.pt)));
+      image.add(new ImageData(new ComparableBufferedImage(croppedImage)));
+      
+      return image;
+    } catch (Exception e) {
+      LOGGER.warn("Error rendering region as image: {}", e.getMessage());
+      return null;
+    }
   }
 
   @Override
