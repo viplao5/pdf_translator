@@ -1,2 +1,6 @@
 target/*
 src/main/resources/config.properties
+src/main/resources/pdfs/
+*.pdf
+.vscode/
+.idea/
