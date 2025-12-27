@@ -143,7 +143,7 @@ public class PdfLayoutAnalyzer {
                 }
             }
         }
-        
+
         // 过滤掉图片元素 - 它们不需要布局分析，由 PdfRenderer 单独处理
         allElements.removeIf(e -> e instanceof Image);
 
@@ -157,7 +157,7 @@ public class PdfLayoutAnalyzer {
             if (element instanceof Image) {
                 continue;
             }
-            
+
             PositionalContext<Element> context = element.getPositionalContext();
             if (context == null) {
                 if (element instanceof TextElement) {
@@ -467,7 +467,8 @@ public class PdfLayoutAnalyzer {
         // Left-margin start check:
         // If a block starts near the left margin (within first 25% of page),
         // it's likely main content that flows left-to-right, not a right column.
-        // This handles indented lists like References that start at left but extend right.
+        // This handles indented lists like References that start at left but extend
+        // right.
         if (entity.left < entity.pageWidth * 0.25) {
             return 0;
         }
@@ -644,20 +645,44 @@ public class PdfLayoutAnalyzer {
     private List<LayoutEntity> consolidateBlocks(List<LayoutEntity> blocks) {
         if (blocks.size() < 2)
             return blocks;
+
         List<LayoutEntity> current = new ArrayList<>(blocks);
         boolean merged;
+        int iteration = 0;
         do {
             merged = false;
+            iteration++;
+            System.out.printf("  [Iteration %d] Checking %d blocks for merge...%n", iteration, current.size());
+
+            // 检查所有块对，不只是i+1
             for (int i = 0; i < current.size(); i++) {
-                for (int j = i + 1; j < current.size(); j++) {
+                for (int j = 0; j < current.size(); j++) {
+                    if (i == j)
+                        continue; // 不与自己比较
+
                     LayoutEntity a = current.get(i);
                     LayoutEntity b = current.get(j);
+
+                    // 确保a在b上方（处理顺序）
+                    if (a.top > b.top)
+                        continue;
+
                     if (shouldMerge(a, b)) {
+                        // 诊断日志：记录合并操作
+                        String textA = getBlockText(a);
+                        String textB = getBlockText(b);
+                        String shortA = (textA.length() > 25 ? textA.substring(0, 25) : textA).replace("\n", "↵");
+                        String shortB = (textB.length() > 25 ? textB.substring(0, 25) : textB).replace("\n", "↵");
+                        System.out.printf("  MERGE: [%s] + [%s]%n", shortA, shortB);
+
+                        // 合并后，保留上方的块（a），删除下方的块（b）
                         LayoutEntity mergedEntity = merge(a, b);
-                        current.set(i, mergedEntity);
-                        current.remove(j);
+                        int removeIndex = (i < j) ? j : i;
+                        int setIndex = (i < j) ? i : j;
+                        current.set(setIndex, mergedEntity);
+                        current.remove(removeIndex);
                         merged = true;
-                        break;
+                        break; // 合并后重新开始
                     }
                 }
                 if (merged)
@@ -665,6 +690,18 @@ public class PdfLayoutAnalyzer {
             }
         } while (merged);
         return current;
+    }
+
+    /**
+     * 辅助方法：检查块是否包含URL或路径
+     */
+    private boolean containsUrlOrPath(LayoutEntity e) {
+        String text = getBlockText(e);
+        return text != null && (text.matches(".*https?://.*") ||
+                text.matches(".*www\\..*") ||
+                text.matches(".*\\.mil/.*") ||
+                text.matches(".*\\.[a-z]{3,4}/.*") ||
+                text.matches(".*\\.(com|org|gov|net|html?|php).*"));
     }
 
     private boolean shouldMerge(LayoutEntity a, LayoutEntity b) {
@@ -675,13 +712,101 @@ public class PdfLayoutAnalyzer {
         double hOverlap = Math.min(a.right, b.right) - Math.max(a.left, b.left);
         double minWidth = Math.min(a.right - a.left, b.right - b.left);
 
+        // === 1. EARLY URL CONTINUATION DETECTION（最高优先级）===
+        // 必须在所有其他检查之前，包括段落分隔检测和跨栏检查
+        // 原因：URL拆分的情况即使"有空间但没放"也应该合并，否则会被段落分隔规则错误阻止
+        // 同时，URL续行即使跨越了双栏中线（可能是由于解析误差）也应该合并
+        String textA_trim = getBlockText(a).trim();
+        String textB_trim = getBlockText(b).trim();
+
+        // 获取A的末尾部分（最后30个字符）和B的开头部分（前20个字符）
+        String aTail = textA_trim.length() > 30 ? textA_trim.substring(textA_trim.length() - 30) : textA_trim;
+        String bHead = textB_trim.length() > 20 ? textB_trim.substring(0, 20) : textB_trim;
+
+        // 检测1: A包含URL/路径部分
+        boolean aContainsUrlPart = textA_trim.matches(".*(?:https?://|www\\.|ftp://)[^\\s]{5,}.*");
+
+        // 检测2: A末尾包含URL域名或路径特征
+        boolean aContainsDotMil = aTail.contains(".mil/");
+        boolean aContainsDotCom = aTail.contains(".com/");
+        boolean aContainsDotGov = aTail.contains(".gov/");
+        boolean aContainsDotOrg = aTail.contains(".org/");
+        boolean aContainsDotNet = aTail.contains(".net/");
+        boolean aContainsAcqOsd = aTail.contains("acq.osd.mil");
+        boolean aContainsDodToolbox = aTail.contains("dodprocurementtoolbox.com");
+        boolean aContainsDla = aTail.contains("dla.mil");
+        boolean aContainsLogSci = aTail.contains("/log/sci/");
+        boolean aContainsDownloads = aTail.contains("/downloads/");
+        boolean aContainsHttp = aTail.contains("http://");
+        boolean aContainsWww = aTail.contains("www.");
+
+        boolean aEndsWithUrlDomain = aContainsDotMil || aContainsDotCom || aContainsDotGov ||
+                aContainsDotOrg || aContainsDotNet || aContainsAcqOsd ||
+                aContainsDodToolbox || aContainsDla;
+        boolean aEndsWithPath = aContainsLogSci || aContainsDownloads ||
+                aContainsHttp || aContainsWww;
+        boolean aEndsWithUrlPart = aEndsWithUrlDomain || aEndsWithPath;
+
+        // 检测3: A末尾没有URL结束标记（句号、逗号、分号等）
+        boolean aEndsWithPeriod = aTail.endsWith(".");
+        boolean aEndsWithComma = aTail.endsWith(",");
+        boolean aEndsWithSemicolon = aTail.endsWith(";");
+        boolean aEndsWithSentenceEnd = aEndsWithPeriod || aEndsWithComma ||
+                aEndsWithSemicolon || aTail.endsWith(" ");
+
+        // 关键：只要包含URL部分且不以句子结束标记结尾，就认为未正确结束
+        boolean aUrlNotProperlyEnded = !aEndsWithSentenceEnd && aContainsUrlPart;
+
+        // 检测4: B开头是URL的扩展
+        String bHeadTrimmed = bHead.trim();
+        boolean bStartsWithHtml = bHeadTrimmed.matches("^(?:html?|\\.[a-z]{3,4}).*");
+        boolean bStartsWithHtmlDot = bHeadTrimmed.matches("^(?:html?\\.?).*");
+        boolean bStartsWithPathSlash = bHeadTrimmed.matches("^(?:/|downloads/|packag|uidtools).*");
+        boolean bStartsWithSlashDot = bHeadTrimmed.matches("^(?:/\\.).*");
+        boolean bIsUrlExtension = bStartsWithHtml || bStartsWithHtmlDot || bStartsWithPathSlash || bStartsWithSlashDot;
+
+        // 检测5: 特殊情况 - A末尾是句号结尾的URL域名，B是"html"
+        boolean aEndsWithDotAfterUrl = aTail.matches(".*(?:mil|com|gov|org|net)\\.$") && aContainsUrlPart;
+
+        // 检测6: B开头是URL协议或域名
+        boolean bStartsWithUrlProtocol = bHeadTrimmed.matches("^(?:https?://|www\\.|ftp://).*");
+
+        // 综合判断：A包含URL部分且未正确结束，B是URL的后续
+        // 改进：如果B是URL协议开始，或者B是URL扩展且A结束于可能的分离点，则认为是续行
+        boolean isUrlContinuation = (aContainsUrlPart || aEndsWithUrlPart
+                || aTail.matches(".*(?:at|to|from|index\\.)$")) &&
+                (aUrlNotProperlyEnded || aEndsWithDotAfterUrl || bIsUrlExtension || bStartsWithUrlProtocol) &&
+                (bIsUrlExtension || bStartsWithUrlProtocol);
+
+        // 如果 A 不包含 URL 但 B 是极其显著的 URL 扩展（如 .html），在间距很小时也认为是续行
+        if (!isUrlContinuation && bIsUrlExtension && vGap < 10) {
+            isUrlContinuation = true;
+        }
+
+        // 获取组中的第一个元素，用于字体大小检测
+        Element earlyFirstA = a.group instanceof ElementGroup ? ((ElementGroup<Element>) a.group).getFirst() : null;
+
+        // 如果是URL续行，直接返回true，不进行其他任何检查
+        // 使用更宽松的垂直间距检测（1.5倍行高）
+        double earlyEstimatedLineHeight = 12.0;
+        double earlyFontSize = 10.0;
+        if (earlyFirstA != null && earlyFirstA.hasAttribute(FontSize.class)) {
+            earlyFontSize = earlyFirstA.getAttribute(FontSize.class).getValue().getMagnitude();
+            earlyEstimatedLineHeight = earlyFontSize * 1.4;
+        }
+
+        if (isUrlContinuation && vGap < earlyEstimatedLineHeight * 1.5) {
+            System.out.printf("   -> EARLY MERGE: URL/path continuation detected (vGap=%.1f < %.1f)%n",
+                    vGap, earlyEstimatedLineHeight * 1.5);
+            return true;
+        }
+
         // === 关键：跨栏合并早期阻止 ===
         // 当预检测到双栏布局时，如果两个块明显位于不同的栏，直接阻止合并
         // 这个检查必须在所有其他检查之前，以防止任何跨栏合并
         if (preDetectedMultiColumn) {
             double columnBoundary = a.pageWidth * 0.5; // 列边界
             double leftColumnMax = a.pageWidth * 0.48; // 左栏最大中心点
-            double rightColumnMin = a.pageWidth * 0.52; // 右栏最小中心点
 
             double aCenterX = (a.left + a.right) / 2.0;
             double bCenterX = (b.left + b.right) / 2.0;
@@ -719,14 +844,7 @@ public class PdfLayoutAnalyzer {
                 // 两个都是窄块，执行原有的跨栏检查
                 // 检查是否位于不同的半边
                 boolean aInLeftHalf = aCenterX < leftColumnMax;
-                boolean aInRightHalf = aCenterX > rightColumnMin;
                 boolean bInLeftHalf = bCenterX < leftColumnMax;
-                boolean bInRightHalf = bCenterX > rightColumnMin;
-
-                // 如果一个在左半边，另一个在右半边，不应合并
-                if ((aInLeftHalf && bInRightHalf) || (aInRightHalf && bInLeftHalf)) {
-                    return false;
-                }
 
                 // 额外检查：如果块的边界跨越了列边界（但中心点没有），也阻止合并
                 boolean aReachesRight = a.right > columnBoundary;
@@ -742,9 +860,8 @@ public class PdfLayoutAnalyzer {
         }
 
         // 计算页面右边距（假设标准边距约 54-72pt）
-        double rightMargin = a.pageWidth - 54;
 
-        // === 1. SAME LINE: Bullet + Content ===
+        // === 2. SAME LINE: Bullet + Content ===
         // bullet 和内容可能被分到不同的 Area，需要合并
         if (vGap < 4 && Math.abs(a.top - b.top) < 5) {
             if (isStandaloneBullet(a) && isToRightOf(b, a) && !startsWithBullet(b))
@@ -799,8 +916,7 @@ public class PdfLayoutAnalyzer {
         // === 2.5 自然段落换行检测（优先于 Area 检查）===
         // 关键原则：自然续行应该合并，即使 Area 不同
         // 例如：页面底部列表项的续行可能被分配到不同的 Area
-        Element earlyFirstA = ((ElementGroup<Element>) a.group).getFirst();
-        Element earlyFirstB = ((ElementGroup<Element>) b.group).getFirst();
+        // earlyFirstA 和 earlyFirstB 已在上面定义
 
         // 计算上一行是否"填满"
         boolean earlyALineIsFull = a.right > a.pageWidth * 0.80;
@@ -808,14 +924,6 @@ public class PdfLayoutAnalyzer {
         boolean earlySameIndent = Math.abs(a.left - b.left) <= 5;
         boolean earlyBIsLessIndented = b.left < a.left - 5;
         boolean earlyLargeLeftShift = a.left - b.left > 100;
-
-        // 估算行高和字体大小
-        double earlyEstimatedLineHeight = 12.0;
-        double earlyFontSize = 10.0;
-        if (earlyFirstA != null && earlyFirstA.hasAttribute(FontSize.class)) {
-            earlyFontSize = earlyFirstA.getAttribute(FontSize.class).getValue().getMagnitude();
-            earlyEstimatedLineHeight = earlyFontSize * 1.4;
-        }
 
         // 关键规则：检测"有空间但没放"的情况
         // 如果上一行末尾还有足够空间容纳下一行的首单词，但却另起一行，说明是新段落
@@ -839,22 +947,8 @@ public class PdfLayoutAnalyzer {
         // 如果上一行剩余空间 > 首单词宽度 + 一些余量，说明有空间但没放，是新段落
         boolean hasSpaceButNotUsed = remainingSpaceInA > estimatedFirstWordWidth + 10;
 
-        // 调试输出
-        String debugTextA = getBlockText(a).trim();
-        String debugTextB = textBForCheck;
-        if (debugTextA.length() > 20)
-            debugTextA = debugTextA.substring(0, 20);
-        if (debugTextB.length() > 20)
-            debugTextB = debugTextB.substring(0, 20);
-        // System.out.printf(" [Merge Check] A='%s' B='%s'%n", debugTextA, debugTextB);
-        // System.out.printf(" lastLineRight=%.1f, pageRightEdge=%.1f,
-        // remaining=%.1f%n",
-        // a.lastLineRight, pageRightEdge, remainingSpaceInA);
-        // System.out.printf(" firstWord='%s' (len=%d), estWidth=%.1f,
-        // hasSpaceButNotUsed=%b%n",
-        // textBForCheck.substring(0, Math.min(firstWordLength,
-        // textBForCheck.length())),
-        // firstWordLength, estimatedFirstWordWidth, hasSpaceButNotUsed);
+        // System.out.printf(" earlyTightGap=%b, earlyVeryTightGap=%b, sameIndent=%b%n",
+        // earlyTightVerticalGap, earlyVeryTightGap, earlySameIndent);
 
         // 关键：区分段落内换行 vs 段落间分隔
         boolean earlyTightVerticalGap = vGap < earlyEstimatedLineHeight * 0.5;
@@ -870,8 +964,11 @@ public class PdfLayoutAnalyzer {
         // === CRITICAL: 如果检测到新段落（有空间但没使用），且不是非常紧密的行（vGap > 2），直接阻止合并 ===
         // 这是最重要的段落分隔规则
         if (likelyNewParagraph && vGap > 2) {
-            // System.out.println(" -> PREVENT: New paragraph detected (space available but
-            // not used)");
+            // 如果两个块垂直间距很小，输出简要拒合并原因
+            if (vGap < 10) {
+                System.out.printf("  REJECTED: New paragraph? (vGap=%.1f, remaining=%.1f pts, firstWordLen=%d)%n",
+                        vGap, remainingSpaceInA, firstWordLength);
+            }
             return false;
         }
 
@@ -1019,14 +1116,14 @@ public class PdfLayoutAnalyzer {
         // b 比 a 缩进更多的情况：
         // 1. 通常表示新段落/子项，不应合并
         // 2. 但如果 A 是列表项开始（如 (a), (b)）且 B 不是新列表项，
-        //    则 B 是 A 的悬挂缩进续行，应该合并
+        // 则 B 是 A 的悬挂缩进续行，应该合并
         if (bIsMoreIndented) {
             boolean aIsListItem = startsWithBullet(a);
             boolean bIsNewListItem = startsWithBullet(b);
-            
+
             // 列表项续行条件：A是列表项，B不是新列表项，且缩进差不超过50pt（典型悬挂缩进）
             boolean isListItemContinuation = aIsListItem && !bIsNewListItem && (b.left - a.left) < 50;
-            
+
             if (isListItemContinuation && vGap < 8) {
                 // 列表项续行：直接合并（悬挂缩进格式）
                 return true;
@@ -1049,7 +1146,7 @@ public class PdfLayoutAnalyzer {
     private List<ElementGroup<Element>> splitGroupByListItems(ElementGroup<Element> group) {
         List<ElementGroup<Element>> result = new java.util.ArrayList<>();
         MutableList<Element> elements = group.getElements();
-        
+
         // 过滤掉图片元素
         elements = elements.reject(e -> e instanceof Image);
 
@@ -1092,7 +1189,7 @@ public class PdfLayoutAnalyzer {
                 }
                 boolean lastWasListItemStart = isListItemStart(lastText);
                 boolean currentIsListItemStart = isListItemStart(text);
-                
+
                 // 列表项续行：上一行是列表项开始，当前行不是新列表项
                 boolean isListItemContinuation = lastWasListItemStart && !currentIsListItemStart;
                 // 也考虑多行续行：当前组的第一个元素是列表项开始或章节编号开始
@@ -1108,7 +1205,7 @@ public class PdfLayoutAnalyzer {
                         }
                     }
                 }
-                
+
                 // 如果是列表项/章节续行，不检测词汇表、定义或样式拆分条件
                 // 只在遇到新的列表项或章节编号时才拆分
                 if (!isListItemContinuation) {
@@ -1116,18 +1213,18 @@ public class PdfLayoutAnalyzer {
                     if (isListItemStart(text)) {
                         shouldSplit = true;
                     }
-    
+
                     // 检测是否是新的词汇表/缩略语条目开始
                     // 但如果当前组是章节段落（以 E2.1. 等开头），不要因为缩写而拆分
                     if (!groupStartsWithSection && isGlossaryEntryStart(text)) {
                         shouldSplit = true;
                     }
-    
+
                     // 检测是否是新的定义词条开始
                     if (!groupStartsWithSection && isDefinitionEntry(text)) {
                         shouldSplit = true;
                     }
-                    
+
                     // 检测字体大小变化（仅对非章节段落）
                     if (!groupStartsWithSection) {
                         double lastFontSize = getElementFontSize(lastElem);
@@ -1221,7 +1318,7 @@ public class PdfLayoutAnalyzer {
                         return false;
                     }
                 }
-                
+
                 String inside = text.substring(1, closeIdx);
                 // 纯数字 (1), (10), (99)
                 if (inside.matches("\\d{1,3}"))
@@ -1252,7 +1349,7 @@ public class PdfLayoutAnalyzer {
             return true;
         return false;
     }
-    
+
     /**
      * 检测文本是否以多级章节编号开头
      * 如：E2.1., 6.1.2., 1.1., A1.2., 2.1. 等
@@ -1396,7 +1493,7 @@ public class PdfLayoutAnalyzer {
                         return false;
                     }
                 }
-                
+
                 String inside = text.substring(1, closeIdx);
                 // 只匹配：单个字母、单个数字、或最多2位数字
                 if (inside.matches("[a-zA-Z]|\\d{1,2}")) {
