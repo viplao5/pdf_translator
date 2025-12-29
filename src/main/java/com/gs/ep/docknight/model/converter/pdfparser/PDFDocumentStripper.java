@@ -121,7 +121,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * The class is used for creation of document model and populating all its properties including text
+ * The class is used for creation of document model and populating all its
+ * properties including text
  * elements etc.
  */
 public class PDFDocumentStripper extends PDFTextStripper {
@@ -229,8 +230,8 @@ public class PDFDocumentStripper extends PDFTextStripper {
       homoglyphMap = Maps.mutable.empty();
       MutableList<String> homoglyphLines = ListAdapter.adapt(IOUtils.readLines(
           PDFDocumentStripper.class.getClassLoader().getResourceAsStream("homoglyphs.txt")));
-      for (int homoglyphsFileLineIndex = 1; homoglyphsFileLineIndex < homoglyphLines.size();
-          homoglyphsFileLineIndex += 2) {
+      for (int homoglyphsFileLineIndex = 1; homoglyphsFileLineIndex < homoglyphLines
+          .size(); homoglyphsFileLineIndex += 2) {
         Character homoglyphReplacement = homoglyphLines.get(homoglyphsFileLineIndex - 1).charAt(0);
         ArrayAdapter.adapt(homoglyphLines.get(homoglyphsFileLineIndex).split(",")).each(
             unicodeChar -> homoglyphMap.add(Tuples
@@ -242,12 +243,12 @@ public class PDFDocumentStripper extends PDFTextStripper {
   }
 
   /**
-   * @return first alphanumeric character from the input {@code positions} if possible
+   * @return first alphanumeric character from the input {@code positions} if
+   *         possible
    */
   private static TextPosition firstAlphabeticPositionIfPossible(
       MutableList<TextPosition> positions) {
-    TextPosition position = positions.detect(p ->
-    {
+    TextPosition position = positions.detect(p -> {
       char ch = p.getUnicode().charAt(0);
       return Character.isAlphabetic(ch) || Character.isDigit(ch);
     });
@@ -255,7 +256,8 @@ public class PDFDocumentStripper extends PDFTextStripper {
   }
 
   /**
-   * Homoglyphs are set of characters that look visually similar but meant different things. This
+   * Homoglyphs are set of characters that look visually similar but meant
+   * different things. This
    * method normalizes these set of characters.
    */
   public static String normalizeHomoglyphs(String originalText) {
@@ -323,8 +325,7 @@ public class PDFDocumentStripper extends PDFTextStripper {
         double adjustedFontSize = fontSize;
         if (letterSpacing < -MAX_ABS_LETTER_SPACING) {
           letterSpacing = -MAX_ABS_LETTER_SPACING;
-          adjustedFontSize =
-              expectedWidth / (standardizedWidthPerFontSize + str.length() * letterSpacing);
+          adjustedFontSize = expectedWidth / (standardizedWidthPerFontSize + str.length() * letterSpacing);
         } else if (letterSpacing > MAX_ABS_LETTER_SPACING) {
           letterSpacing = MAX_ABS_LETTER_SPACING;
         }
@@ -408,16 +409,13 @@ public class PDFDocumentStripper extends PDFTextStripper {
               : textMatrix.getShearY() / textMatrix.getScaleX());
       if (tanOfTextTiltFromHorizontal <= MAX_TAN_OF_TEXT_TILT_FROM_HORIZONTAL) {
         this.textPerpendicularFlipScore--;
-        int textColor =
-            renderingMode.isFill() ? GraphicsExtractor.getNonStrokingColor(graphicsState)
-                : GraphicsExtractor.getStrokingColor(graphicsState);
+        int textColor = renderingMode.isFill() ? GraphicsExtractor.getNonStrokingColor(graphicsState)
+            : GraphicsExtractor.getStrokingColor(graphicsState);
         float xLoc = text.getXDirAdj();
         float yLoc = text.getYDirAdj();
         ColoredArea backGroundColoredArea = this.getBackGroundColoredAreaAtLocation(xLoc, yLoc);
-        int backGroundColor =
-            backGroundColoredArea == null ? GraphicsExtractor.WHITE : backGroundColoredArea.color;
-        int backGroundOperationIndex =
-            backGroundColoredArea == null ? 0 : backGroundColoredArea.operationIndex;
+        int backGroundColor = backGroundColoredArea == null ? GraphicsExtractor.WHITE : backGroundColoredArea.color;
+        int backGroundOperationIndex = backGroundColoredArea == null ? 0 : backGroundColoredArea.operationIndex;
         if (textColor != GraphicsExtractor.TRANSPARENT_COLOR && textColor != backGroundColor) {
           if (textColor != GraphicsExtractor.BLACK) {
             if (this.isWaterMark(Math.min(ImageUtils.getLuminance(textColor),
@@ -485,8 +483,9 @@ public class PDFDocumentStripper extends PDFTextStripper {
   }
 
   /**
-   * @return positions after removing positions from beginning and end of {@code positions} which
-   * contain only white spaces
+   * @return positions after removing positions from beginning and end of
+   *         {@code positions} which
+   *         contain only white spaces
    */
   private MutableList<TextPosition> trimTextPositions(MutableList<TextPosition> positions) {
     int start = positions
@@ -494,9 +493,8 @@ public class PDFDocumentStripper extends PDFTextStripper {
     if (start < 0) {
       return Lists.mutable.empty();
     }
-    int end =
-        positions.detectLastIndex(p -> !SemanticsChecker.isWhiteSpace(p.getUnicode().charAt(0)))
-            + 1;
+    int end = positions.detectLastIndex(p -> !SemanticsChecker.isWhiteSpace(p.getUnicode().charAt(0)))
+        + 1;
     if (start > 0 || end < positions.size()) {
       return positions.subList(start, end);
     }
@@ -504,7 +502,8 @@ public class PDFDocumentStripper extends PDFTextStripper {
   }
 
   /**
-   * Clipped area is a the region in which the content is visible to users and anything outside of
+   * Clipped area is a the region in which the content is visible to users and
+   * anything outside of
    * it is present in document but is hidden from the users.
    *
    * @return True if coordinates ({@code xLoc}, {@code yLoc}) is inside clip area
@@ -544,7 +543,8 @@ public class PDFDocumentStripper extends PDFTextStripper {
     boolean skipChars = false;
     int maxSkipChars = text.length() - textPositions.size();
     for (TextPosition textPosition : textPositions) {
-      // handle the case when unicode chars like ffi (U+FB03) and ff (U+FB00) are expanded by PDFTextStripper#normalizeWord()
+      // handle the case when unicode chars like ffi (U+FB03) and ff (U+FB00) are
+      // expanded by PDFTextStripper#normalizeWord()
       char unprocessedChar = textPosition.getUnicode().charAt(0);
       int numSkipChars = 1;
       if (skipChars) {
@@ -557,12 +557,11 @@ public class PDFDocumentStripper extends PDFTextStripper {
       char ch = text.charAt(i);
       skipChars = ch != unprocessedChar && maxSkipChars > 0;
       String imageStringPrepend = null;
-      if (!this.imageStrings.isEmpty() && Character.isDigit(ch))  // applicable in context of digits
+      if (!this.imageStrings.isEmpty() && Character.isDigit(ch)) // applicable in context of digits
       {
         ImageString textPositionAsImageString = new ImageString(textPosition);
-        int index =
-            Math.abs(Collections.binarySearch(this.imageStrings, textPositionAsImageString) + 1)
-                - 1;
+        int index = Math.abs(Collections.binarySearch(this.imageStrings, textPositionAsImageString) + 1)
+            - 1;
         if (index >= 0) {
           ImageString imageString = this.imageStrings.get(index);
           int distance = textPositionAsImageString.compareTo(imageString);
@@ -578,11 +577,11 @@ public class PDFDocumentStripper extends PDFTextStripper {
       } else {
         if (lastTextPosition != null) {
           double widthOfSpace = this.getFontInfo(lastTextPosition).widthOfSpace;
-          double distanceFromLastNonSpaceChar =
-              textPosition.getXDirAdj() - lastTextPosition.getXDirAdj() - this
-                  .getWidth(lastTextPosition);
+          double distanceFromLastNonSpaceChar = textPosition.getXDirAdj() - lastTextPosition.getXDirAdj() - this
+              .getWidth(lastTextPosition);
 
-          //need Math.abs(textPosition.getHeightDir()) here because in some cases negative fonts are found.
+          // need Math.abs(textPosition.getHeightDir()) here because in some cases
+          // negative fonts are found.
           if (textPosition.getYDirAdj() - HEIGHT_TO_FONT_RATIO * Math
               .abs(textPosition.getHeightDir()) > lastTextPosition.getYDirAdj()
               || distanceFromLastNonSpaceChar < -widthOfSpace) {
@@ -630,7 +629,8 @@ public class PDFDocumentStripper extends PDFTextStripper {
 
   /**
    * If word without scaling is not present in dictionary, then update the
-   * totalExtraVocabWordsIfSpacingScaled count if scaled word is present in english dictionary
+   * totalExtraVocabWordsIfSpacingScaled count if scaled word is present in
+   * english dictionary
    */
   private void updateExtraVocWordCountIfSpacingScaled() {
     String probableWord = ArrayAdapter.adapt(this.processedText.toString().split("\\W"))
@@ -662,9 +662,8 @@ public class PDFDocumentStripper extends PDFTextStripper {
             .get(0).wordTextPositions.get(0);
         TextPosition succeedingLineFirstChar = this.processWordsInCurrentPage.get(succeedingLineIdx)
             .get(0).wordTextPositions.get(0);
-        float interLineSpace =
-            succeedingLineFirstChar.getYDirAdj() - succeedingLineFirstChar.getHeightDir()
-                - currentLineFirstChar.getYDirAdj();
+        float interLineSpace = succeedingLineFirstChar.getYDirAdj() - succeedingLineFirstChar.getHeightDir()
+            - currentLineFirstChar.getYDirAdj();
         interLineSpaces.add(interLineSpace);
       }
 
@@ -686,12 +685,12 @@ public class PDFDocumentStripper extends PDFTextStripper {
             .add(Tuples.pair(currentSpaceIdx, currentWhitespace.xRight - currentWhitespace.xLeft));
       }
 
-      MutableList<Pair<Integer, Float>> sortedSpaceWidths = spaceWidths.sortThis((entry1, entry2) ->
-      {
+      MutableList<Pair<Integer, Float>> sortedSpaceWidths = spaceWidths.sortThis((entry1, entry2) -> {
         return Float.compare(entry1.getTwo(), entry2.getTwo());
       });
 
-      // Find the number of spurious whitespaces and the majority space widths for this line
+      // Find the number of spurious whitespaces and the majority space widths for
+      // this line
       float width1 = 0;
       float width2 = 0;
       if (sortedSpaceWidths.notEmpty()) {
@@ -726,14 +725,12 @@ public class PDFDocumentStripper extends PDFTextStripper {
     // Check whether line is left aligned and there is constant space between lines.
     for (int idx = interLineSpaces.size() - 1; idx > 0; idx--) {
       if (Math.abs(interLineSpaces.get(idx) - interLineSpaces.get(idx - 1)) < EPSILON) {
-        if (Math.abs(lineAlignments.get(idx).getOne() - lineAlignments.get(idx + 1).getOne())
-            < EPSILON) {
+        if (Math.abs(lineAlignments.get(idx).getOne() - lineAlignments.get(idx + 1).getOne()) < EPSILON) {
           justifiedSpaceInfo.get(idx).isLeftAlignedAndConstantInterLineSpace = true;
           justifiedSpaceInfo.get(idx + 1).isLeftAlignedAndConstantInterLineSpace = true;
         }
 
-        if (Math.abs(lineAlignments.get(idx).getOne() - lineAlignments.get(idx - 1).getOne())
-            < EPSILON) {
+        if (Math.abs(lineAlignments.get(idx).getOne() - lineAlignments.get(idx - 1).getOne()) < EPSILON) {
           justifiedSpaceInfo.get(idx - 1).isLeftAlignedAndConstantInterLineSpace = true;
           justifiedSpaceInfo.get(idx).isLeftAlignedAndConstantInterLineSpace = true;
         }
@@ -771,13 +768,14 @@ public class PDFDocumentStripper extends PDFTextStripper {
         Pair<Float, Float> intersectingSpaceInterval = Tuples
             .pair(currentWhitespace.xLeft, currentWhitespace.xRight);
 
-        //check in consecutive lines (allow skipping) for the aligned spaces.
+        // check in consecutive lines (allow skipping) for the aligned spaces.
         while (succeedingLineIdx < totalLines
             && aligningSpacesCount + skippedLinesCount + currentLineIdx + 1 == succeedingLineIdx
             // there should be no line which is not skipped and not aligning
             && aligningSpacesCount < REQUIRED_ALIGNED_SPACES_COUNT
             && skippedLinesCount <= 2 * REQUIRED_ALIGNED_SPACES_COUNT
-            // worst case between each row of the table there is are two lines which can be skipped.
+            // worst case between each row of the table there is are two lines which can be
+            // skipped.
             && consecutiveSkippedLinesCount <= 2) {
           float maxXCoordinateCurrentLine = this.getMaxXCoordinate(succeedingLineIdx);
           float minXCoordinateCurrentLine = this.getMinXCoordinate(succeedingLineIdx);
@@ -785,9 +783,9 @@ public class PDFDocumentStripper extends PDFTextStripper {
           if (maxXCoordinateCurrentLine <= intersectingSpaceInterval.getOne()
               || minXCoordinateCurrentLine >= intersectingSpaceInterval.getTwo()) {
             skippedLinesCount++;
-            consecutiveSkippedLinesCount =
-                lastSkippedLineIndex == succeedingLineIdx - 1 ? consecutiveSkippedLinesCount + 1
-                    : 1;
+            consecutiveSkippedLinesCount = lastSkippedLineIndex == succeedingLineIdx - 1
+                ? consecutiveSkippedLinesCount + 1
+                : 1;
             lastSkippedLineIndex = succeedingLineIdx;
           } else {
             MutableList<WhitespacePosition> succeedingLineSpaces = this.processedWhiteSpacesInCurrentPage
@@ -816,7 +814,7 @@ public class PDFDocumentStripper extends PDFTextStripper {
           succeedingLineIdx++;
         }
 
-        //set breakThreshold depending on the alignment
+        // set breakThreshold depending on the alignment
         if (aligningSpacesCount == REQUIRED_ALIGNED_SPACES_COUNT || (succeedingLineIdx == totalLines
             && succeedingLineIdx - skippedLinesCount - currentLineIdx - 1 == aligningSpacesCount)) {
           for (Pair<Integer, Integer> intersectingSpacesIndexPair : intersectingSpaceIndices) {
@@ -831,12 +829,13 @@ public class PDFDocumentStripper extends PDFTextStripper {
             }
           }
         } else if (currentWhitespace.spaceBreakThreshold == -1) {
-          currentWhitespace.spaceBreakThreshold =
-              this.isCurrentWhiteSpaceAcrossLine(currentLineIdx, endWordIndex, currentWhitespace)
-                  ? DEFAULT_SPACE_BREAK_THRESHOLD : PARAGRAPH_SPACE_BREAK_THRESHOLD;
+          currentWhitespace.spaceBreakThreshold = this.isCurrentWhiteSpaceAcrossLine(currentLineIdx, endWordIndex,
+              currentWhitespace)
+                  ? DEFAULT_SPACE_BREAK_THRESHOLD
+                  : PARAGRAPH_SPACE_BREAK_THRESHOLD;
         }
 
-        //decide whether a textElement should be created or not.
+        // decide whether a textElement should be created or not.
         double widthOfSpace = currentWhitespace.widthOfSpace;
         if (this.settings.isDynamicSpaceWidthComputationEnabled() && justifiedTextInfos.notEmpty()
             && justifiedTextInfos.get(currentLineIdx).isLinePartofJustifiedtext()) {
@@ -844,8 +843,9 @@ public class PDFDocumentStripper extends PDFTextStripper {
           currentWhitespace.spaceBreakThreshold = PARAGRAPH_SPACE_BREAK_THRESHOLD;
         }
 
-        boolean isSpacingSame = currentWhitespace.xRight - currentWhitespace.xLeft
-            < currentWhitespace.spaceBreakThreshold * widthOfSpace * this.spacingFactor + EPSILON;
+        boolean isSpacingSame = currentWhitespace.xRight
+            - currentWhitespace.xLeft < currentWhitespace.spaceBreakThreshold * widthOfSpace * this.spacingFactor
+                + EPSILON;
         boolean isFontSame = this.isFontSame(currentLineIdx, endWordIndex + 1);
         if (isSpacingSame && isFontSame) {
           endWordIndex++;
@@ -860,8 +860,9 @@ public class PDFDocumentStripper extends PDFTextStripper {
   }
 
   /**
-   * @return True if word at position {@code wordIndex} has same font (text styles) as word at
-   * position {@code wordIndex}-1 in line at index {@code currentLineIdx}
+   * @return True if word at position {@code wordIndex} has same font (text
+   *         styles) as word at
+   *         position {@code wordIndex}-1 in line at index {@code currentLineIdx}
    */
   private boolean isFontSame(int currentLineIdx, int wordIndex) {
     if (this.settings.isFontChangeSegmentation()) {
@@ -872,12 +873,11 @@ public class PDFDocumentStripper extends PDFTextStripper {
           words.get(wordIndex).wordTextPositions);
       FontInfo prevFontInfo = this.getFontInfo(prevPosition);
       FontInfo currFontInfo = this.getFontInfo(currPosition);
-      double fontSizeChangeFactor =
-          Math.abs(currFontInfo.fontSize - prevFontInfo.fontSize) / prevFontInfo.fontSize;
-      boolean sameStyles = prevFontInfo.standardizedFont.textStyles.size()
-          == currFontInfo.standardizedFont.textStyles.size()
+      double fontSizeChangeFactor = Math.abs(currFontInfo.fontSize - prevFontInfo.fontSize) / prevFontInfo.fontSize;
+      boolean sameStyles = prevFontInfo.standardizedFont.textStyles.size() == currFontInfo.standardizedFont.textStyles
+          .size()
           && prevFontInfo.standardizedFont.textStyles
-          .containsAll(currFontInfo.standardizedFont.textStyles);
+              .containsAll(currFontInfo.standardizedFont.textStyles);
       return sameStyles && fontSizeChangeFactor <= 0.2 && this.isUnderlined(prevPosition) == this
           .isUnderlined(currPosition);
     }
@@ -897,9 +897,8 @@ public class PDFDocumentStripper extends PDFTextStripper {
     float u = UNDERLINE_DISTANCE_FACTOR * h;
     MutableSortedMap<Float, MutableList<HorizontalLine>> candidateUnderLines = this.horizontalLinesGroupedByYPos
         .subMap(y - u, y + u);
-    return candidateUnderLines.anySatisfy(lines ->
-        lines.anySatisfy(line -> line.getLeft().getMagnitude() < x
-            && line.getLeft().getMagnitude() + line.getStretch().getMagnitude() > x));
+    return candidateUnderLines.anySatisfy(lines -> lines.anySatisfy(line -> line.getLeft().getMagnitude() < x
+        && line.getLeft().getMagnitude() + line.getStretch().getMagnitude() > x));
   }
 
   private boolean isCurrentWhiteSpaceAcrossLine(int currentLineIdx, int endWordIndex,
@@ -908,13 +907,14 @@ public class PDFDocumentStripper extends PDFTextStripper {
         .subMap(currentWhitespace.xLeft, currentWhitespace.xRight);
     float whiteSpaceY = this.processWordsInCurrentPage.get(currentLineIdx)
         .get(endWordIndex).wordTextPositions.getLast().getYDirAdj();
-    return verticalLinesAtWhiteSpaceXPosition.anySatisfy(lines ->
-        lines.anySatisfy(line -> line.getTop().getMagnitude() < whiteSpaceY
+    return verticalLinesAtWhiteSpaceXPosition
+        .anySatisfy(lines -> lines.anySatisfy(line -> line.getTop().getMagnitude() < whiteSpaceY
             && line.getTop().getMagnitude() + line.getStretch().getMagnitude() > whiteSpaceY));
   }
 
   /**
-   * @return the x coordinate of first word present in line at index {@code lineNo}
+   * @return the x coordinate of first word present in line at index
+   *         {@code lineNo}
    */
   private float getMinXCoordinate(int lineNo) {
     return this.processWordsInCurrentPage.get(lineNo).getFirst().wordTextPositions.getFirst()
@@ -977,7 +977,8 @@ public class PDFDocumentStripper extends PDFTextStripper {
   }
 
   /**
-   * Create the text element using all the words from {@code startWordIndex} to {@code endWordIndex}
+   * Create the text element using all the words from {@code startWordIndex} to
+   * {@code endWordIndex}
    * present in line index {@code lineIndex}
    */
   private void createTextElement(int startWordIndex, int endWordIndex, int lineIndex,
@@ -998,15 +999,13 @@ public class PDFDocumentStripper extends PDFTextStripper {
 
     float left = firstPosition.getXDirAdj();
     double bottom = nonNullPositions.collectFloat(TextPosition::getYDirAdj).average();
-    double height =
-        nonNullPositions.collectFloat(textPosition -> Math.abs(textPosition.getHeightDir()))
-            .average() * HEIGHT_TO_FONT_RATIO;
+    double height = nonNullPositions.collectFloat(textPosition -> Math.abs(textPosition.getHeightDir()))
+        .average() * HEIGHT_TO_FONT_RATIO;
     float right = lastPosition.getXDirAdj() + this.getWidth(lastPosition);
     float width = right - left;
 
-    TextPosition positionForFont =
-        this.settings.isFontChangeSegmentation() ? firstAlphabeticPositionIfPossible(
-            nonNullPositions) : firstPosition;
+    TextPosition positionForFont = this.settings.isFontChangeSegmentation() ? firstAlphabeticPositionIfPossible(
+        nonNullPositions) : firstPosition;
     StandardizedFont standardizedFont = this.getFontInfo(positionForFont).standardizedFont;
     double fontSize = nonNullPositions.collectFloat(p -> this.getFontInfo(p).fontSize).average();
     Pair<Double, Double> letterSpacingAndAdjustedFontSize = getLetterSpacingAndAdjustedFontSize(
@@ -1020,9 +1019,8 @@ public class PDFDocumentStripper extends PDFTextStripper {
     ColoredArea backGroundColoredArea = this
         .getBackGroundColoredAreaAtLocation(positionForFont.getXDirAdj(),
             positionForFont.getYDirAdj());
-    boolean isBoldDueToFillStroke =
-        standardizedFont.textStyles.noneSatisfy(style -> style.equals(TextStyles.BOLD))
-            && this.fillStrokeTextPositions.contains(firstPosition);
+    boolean isBoldDueToFillStroke = standardizedFont.textStyles.noneSatisfy(style -> style.equals(TextStyles.BOLD))
+        && this.fillStrokeTextPositions.contains(firstPosition);
     MutableList<String> textStyles = standardizedFont.textStyles;
     if (isUnderlined || isBoldDueToFillStroke) {
       textStyles = Lists.mutable.ofAll(textStyles);
@@ -1069,16 +1067,16 @@ public class PDFDocumentStripper extends PDFTextStripper {
             .addAttribute(new AlternateRepresentations(styledSubTextElements));
       } else {
         this.lastSpacingSplitElementIndex = this.textElements.size();
-        this.lastSpacingSplitWordIndex =
-            endWordIndex == this.processWordsInCurrentPage.get(lineIndex).size() - 1 ? 0
-                : endWordIndex + 1;
+        this.lastSpacingSplitWordIndex = endWordIndex == this.processWordsInCurrentPage.get(lineIndex).size() - 1 ? 0
+            : endWordIndex + 1;
       }
     }
   }
 
   /**
-   * @return text generated using words from {@code startWordIndex} to {@code endWordIndex} on line
-   * {@code lineIndex}
+   * @return text generated using words from {@code startWordIndex} to
+   *         {@code endWordIndex} on line
+   *         {@code lineIndex}
    */
   private String getTextStrForTextElement(int startWordIndex, int endWordIndex, int lineIndex) {
     StringBuffer text = new StringBuffer();
@@ -1107,27 +1105,26 @@ public class PDFDocumentStripper extends PDFTextStripper {
   private FontInfo getFontInfo(TextPosition position) {
     PDFont font = position.getFont();
     float fontSizeStored = Math
-        .abs(position.getFontSizeInPt());  // sometimes pdfbox gives negative values
+        .abs(position.getFontSizeInPt()); // sometimes pdfbox gives negative values
     FontInfo fontInfo = this.fontCache
         .get(f -> f.font == font && f.storedFontSize == fontSizeStored);
 
     if (fontInfo == null) {
       float widthOfSpace = position.getWidthOfSpace();
-      float widthOfSpacePerFontSize =
-          font instanceof PDType0Font ? getSpaceWidthAsPerPdfBoxV2_0_0(font) : font.getSpaceWidth();
+      float widthOfSpacePerFontSize = font instanceof PDType0Font ? getSpaceWidthAsPerPdfBoxV2_0_0(font)
+          : font.getSpaceWidth();
       widthOfSpacePerFontSize = widthOfSpacePerFontSize > 0 ? widthOfSpacePerFontSize : 250;
       float fontSize = fontSizeStored > 6 * widthOfSpace && widthOfSpace > 0 ? widthOfSpace * 1000
           / widthOfSpacePerFontSize : fontSizeStored; // font correction
       float fontSizeFromWidth;
       try {
-        fontSizeFromWidth =
-            position.getWidthDirAdj() * 1000 / font.getStringWidth(position.getUnicode());
+        fontSizeFromWidth = position.getWidthDirAdj() * 1000 / font.getStringWidth(position.getUnicode());
       } catch (Exception e) {
         fontSizeFromWidth = Integer.MAX_VALUE;
       }
       fontSize = fontSize - 1 >= fontSizeFromWidth && fontSizeFromWidth > 0 ? fontSizeFromWidth
-          : fontSize;  // another font correction
-      fontSize = fontSize > 0 ? fontSize : 11;  // when everything fails
+          : fontSize; // another font correction
+      fontSize = fontSize > 0 ? fontSize : 11; // when everything fails
       widthOfSpace = widthOfSpacePerFontSize * fontSize / 1000;
 
       fontInfo = new FontInfo(font, fontSizeStored, fontSize, widthOfSpace,
@@ -1241,9 +1238,10 @@ public class PDFDocumentStripper extends PDFTextStripper {
 
     this.processPage();
 
-    // 检测并渲染图形区域（文本间的大间隙，可能包含矢量图形）
-    detectAndRenderFigureRegions();
-    
+    // 禁用自动检测图形区域功能 - PDF中的图片已通过GraphicsExtractor正确提取
+    // 这个功能会导致空白区域被不必要地渲染，并可能包含原始英文文本
+    // detectAndRenderFigureRegions();
+
     // 只有当页面没有文本、没有图片、没有其他元素时才认为是"仅图像"页面
     // 如果有图片元素（如图表、流程图），不应该被视为扫描PDF
     if (this.textElements.isEmpty() && this.images.isEmpty() && this.otherElements.isEmpty()) {
@@ -1271,7 +1269,8 @@ public class PDFDocumentStripper extends PDFTextStripper {
   }
 
   /**
-   * @return True if space width in document is larger than expected else return False
+   * @return True if space width in document is larger than expected else return
+   *         False
    */
   private boolean isReportedSpaceWidthForDocScaled() {
     return this.processWordsInCurrentPage.size() >= 5
@@ -1300,16 +1299,17 @@ public class PDFDocumentStripper extends PDFTextStripper {
     double bottom = top + element.getAttributeValue(Height.class, Length.ZERO).getMagnitude();
     return left <= this.pageWidth && top <= this.pageHeight && right >= 0 && bottom >= 0;
   }
-  
+
   /**
    * 检测页面中的图形区域（文本间的大间隙）并从原始PDF渲染为图像
    * 这允许矢量图形（流程图、图表等）被正确保留
+   * 注意：如果该区域已经有提取的图片，则不需要重新渲染
    */
   private void detectAndRenderFigureRegions() {
     if (this.textElements.isEmpty() || this.pdDocument == null) {
       return;
     }
-    
+
     // 按top位置排序文本元素
     MutableList<Element> sorted = Lists.mutable.withAll(this.textElements);
     sorted.sortThis((a, b) -> {
@@ -1317,30 +1317,59 @@ public class PDFDocumentStripper extends PDFTextStripper {
       double topB = b.getAttribute(Top.class).getMagnitude();
       return Double.compare(topA, topB);
     });
-    
+
     double minGapForFigure = 100.0; // 至少100pt的间隙才认为是图形区域
     int pageIndex = this.pages.size(); // 当前页面索引
-    
+
     for (int i = 0; i < sorted.size() - 1; i++) {
       Element current = sorted.get(i);
       Element next = sorted.get(i + 1);
-      
-      double currentBottom = current.getAttribute(Top.class).getMagnitude() 
+
+      double currentBottom = current.getAttribute(Top.class).getMagnitude()
           + current.getAttributeValue(Height.class, Length.ZERO).getMagnitude();
       double nextTop = next.getAttribute(Top.class).getMagnitude();
       double gap = nextTop - currentBottom;
-      
+
       if (gap > minGapForFigure) {
+        // 检查这个间隙区域是否已经有提取的图片
+        // 如果有，则不需要重新从PDF渲染（避免包含原始英文文本）
+        boolean hasExistingImage = false;
+        for (Element existingImage : this.images) {
+          double imgTop = existingImage.getAttribute(Top.class).getMagnitude();
+          double imgBottom = imgTop + existingImage.getAttributeValue(Height.class, Length.ZERO).getMagnitude();
+
+          // 检查图片是否在这个间隙区域内（允许一些重叠）
+          if (imgTop >= currentBottom - 10 && imgBottom <= nextTop + 10) {
+            hasExistingImage = true;
+            break;
+          }
+          // 或者图片与间隙区域有显著重叠
+          double overlapTop = Math.max(imgTop, currentBottom);
+          double overlapBottom = Math.min(imgBottom, nextTop);
+          if (overlapBottom > overlapTop) {
+            double overlapRatio = (overlapBottom - overlapTop) / gap;
+            if (overlapRatio > 0.5) {
+              hasExistingImage = true;
+              break;
+            }
+          }
+        }
+
+        if (hasExistingImage) {
+          // 已经有图片在这个区域，跳过
+          continue;
+        }
+
         // 检查下一个元素是否是图片标题
         String nextText = "";
         if (next.hasAttribute(Text.class)) {
           nextText = next.getAttribute(Text.class).getValue().trim().toLowerCase();
         }
-        boolean isFigureCaption = nextText.startsWith("figure ") || 
-                                 nextText.startsWith("fig.") || 
-                                 nextText.startsWith("图") ||
-                                 nextText.matches("^图\\s*\\d+.*");
-        
+        boolean isFigureCaption = nextText.startsWith("figure ") ||
+            nextText.startsWith("fig.") ||
+            nextText.startsWith("图") ||
+            nextText.matches("^图\\s*\\d+.*");
+
         if (isFigureCaption || gap > 150) {
           // 渲染这个区域为图像
           try {
@@ -1355,7 +1384,7 @@ public class PDFDocumentStripper extends PDFTextStripper {
       }
     }
   }
-  
+
   /**
    * 将PDF页面的指定区域渲染为图像
    */
@@ -1365,36 +1394,36 @@ public class PDFDocumentStripper extends PDFTextStripper {
       // 以150 DPI渲染整个页面
       float scale = 150f / 72f; // 150 DPI
       BufferedImage fullPageImage = renderer.renderImage(pageIndex, scale);
-      
+
       // 给顶部添加边距，避免包含上方文本的一部分
       // 文本元素的底部边界可能不精确，所以我们需要留一些空间
       double topMargin = 15.0; // 15pt 边距
       double adjustedTop = top + topMargin;
-      
+
       // 计算要裁剪的区域（考虑缩放）
       int imgTop = (int) (adjustedTop * scale);
       int imgBottom = (int) (bottom * scale);
       int imgHeight = imgBottom - imgTop;
-      
+
       if (imgHeight <= 0 || imgTop < 0 || imgBottom > fullPageImage.getHeight()) {
         return null;
       }
-      
+
       // 裁剪图像
       BufferedImage croppedImage = fullPageImage.getSubimage(
           0, imgTop, fullPageImage.getWidth(), imgHeight);
-      
+
       // 创建Image元素 - 使用调整后的顶部位置
       double regionHeight = bottom - adjustedTop;
       double regionWidth = this.pageWidth;
-      
+
       Image image = new Image();
       image.add(new Top(new Length(adjustedTop, Unit.pt))); // 使用调整后的顶部位置
       image.add(new Left(new Length(0, Unit.pt)));
       image.add(new Width(new Length(regionWidth, Unit.pt)));
       image.add(new Height(new Length(regionHeight, Unit.pt)));
       image.add(new ImageData(new ComparableBufferedImage(croppedImage)));
-      
+
       return image;
     } catch (Exception e) {
       LOGGER.warn("Error rendering region as image: {}", e.getMessage());
@@ -1473,7 +1502,8 @@ public class PDFDocumentStripper extends PDFTextStripper {
   }
 
   /**
-   * Class to represent key for null ligature. Ligature occurs where two or more letters are joined
+   * Class to represent key for null ligature. Ligature occurs where two or more
+   * letters are joined
    * as a single glyph. Example:æ
    */
   private static final class NullLigatureKey {
@@ -1554,8 +1584,8 @@ public class PDFDocumentStripper extends PDFTextStripper {
   private static final class FontInfo {
 
     private final PDFont font;
-    private final float storedFontSize;       // Font size stored in pdfbox
-    private final float fontSize;                   // Font size after correction
+    private final float storedFontSize; // Font size stored in pdfbox
+    private final float fontSize; // Font size after correction
     private final float widthOfSpace;
     private final StandardizedFont standardizedFont;
 
@@ -1645,8 +1675,9 @@ public class PDFDocumentStripper extends PDFTextStripper {
    */
   class JustifiedTextInfo {
 
-    private final int spuriousSpaceCount;                // Number of spaces in a line that have width different from majoritySpaceWidth
-    private final float majoritySpaceWidth;             // width of space that is present consecutively most of the times in a line
+    private final int spuriousSpaceCount; // Number of spaces in a line that have width different from
+                                          // majoritySpaceWidth
+    private final float majoritySpaceWidth; // width of space that is present consecutively most of the times in a line
     private boolean isLeftAlignedAndConstantInterLineSpace;
 
     JustifiedTextInfo(int spuriousSpaceCount, float majoritySpaceWidth,

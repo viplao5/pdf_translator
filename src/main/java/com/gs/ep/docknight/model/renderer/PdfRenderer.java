@@ -93,7 +93,20 @@ public class PdfRenderer implements Renderer<byte[]> {
                 List<Pair<java.awt.Rectangle, Integer>> coloredAreas = page.getAttribute(PageColor.class).getValue();
                 for (Pair<java.awt.Rectangle, Integer> area : coloredAreas) {
                     java.awt.Rectangle rect = area.getOne();
-                    Color color = new Color(area.getTwo());
+                    int colorValue = area.getTwo();
+                    Color color = new Color(colorValue);
+
+                    // Skip black or very dark colors (may cause unwanted black bars)
+                    // Also skip very thin strips (width or height < 3) as they are likely border
+                    // lines
+                    int brightness = (color.getRed() + color.getGreen() + color.getBlue()) / 3;
+                    boolean isBlackOrDark = brightness < 30;
+                    boolean isThinStrip = rect.getWidth() < 3 || rect.getHeight() < 3;
+
+                    if (isBlackOrDark || isThinStrip) {
+                        continue; // Skip black/dark areas and thin strips
+                    }
+
                     contentStream.setNonStrokingColor(color);
                     contentStream.addRect((float) rect.getX(), (float) (height - rect.getY() - rect.getHeight()),
                             (float) rect.getWidth(), (float) rect.getHeight());
@@ -108,7 +121,8 @@ public class PdfRenderer implements Renderer<byte[]> {
                 for (com.gs.ep.docknight.model.TabularElementGroup<Element> tableGroup : page.getPositionalContent()
                         .getValue().getTabularGroups()) {
                     // Calculate table bounding box using BOTH text boundaries AND element positions
-                    // This ensures border lines are included even after translation changes text bounds
+                    // This ensures border lines are included even after translation changes text
+                    // bounds
                     double minLeft = Double.MAX_VALUE;
                     double minTop = Double.MAX_VALUE;
                     double maxRight = Double.MIN_VALUE;
@@ -124,14 +138,16 @@ public class PdfRenderer implements Renderer<byte[]> {
                                 minTop = Math.min(minTop, bbox.getTop());
                                 maxRight = Math.max(maxRight, bbox.getRight());
                                 maxBottom = Math.max(maxBottom, bbox.getBottom());
-                                
-                                // Also check individual element positions (may have been modified during translation)
+
+                                // Also check individual element positions (may have been modified during
+                                // translation)
                                 for (Element cellElement : cell.getElements()) {
                                     if (cellElement.hasAttribute(Left.class)) {
                                         double elemLeft = cellElement.getAttribute(Left.class).getMagnitude();
                                         minLeft = Math.min(minLeft, elemLeft);
                                         if (cellElement.hasAttribute(Width.class)) {
-                                            double elemRight = elemLeft + cellElement.getAttribute(Width.class).getMagnitude();
+                                            double elemRight = elemLeft
+                                                    + cellElement.getAttribute(Width.class).getMagnitude();
                                             maxRight = Math.max(maxRight, elemRight);
                                         }
                                     }
@@ -139,7 +155,8 @@ public class PdfRenderer implements Renderer<byte[]> {
                                         double elemTop = cellElement.getAttribute(Top.class).getMagnitude();
                                         minTop = Math.min(minTop, elemTop);
                                         if (cellElement.hasAttribute(Height.class)) {
-                                            double elemBottom = elemTop + cellElement.getAttribute(Height.class).getMagnitude();
+                                            double elemBottom = elemTop
+                                                    + cellElement.getAttribute(Height.class).getMagnitude();
                                             maxBottom = Math.max(maxBottom, elemBottom);
                                         }
                                     }
@@ -166,20 +183,25 @@ public class PdfRenderer implements Renderer<byte[]> {
             java.util.List<double[]> imageRegions = new java.util.ArrayList<>();
             if (page.hasAttribute(PositionalContent.class)) {
                 for (Element element : page.getPositionalContent().getValue().getElements()) {
-                    if (element instanceof Image && element.hasAttribute(Left.class) && element.hasAttribute(Top.class)) {
+                    if (element instanceof Image && element.hasAttribute(Left.class)
+                            && element.hasAttribute(Top.class)) {
                         double imgLeft = element.getAttribute(Left.class).getMagnitude();
                         double imgTop = element.getAttribute(Top.class).getMagnitude();
-                        double imgWidth = element.hasAttribute(Width.class) ? element.getAttribute(Width.class).getMagnitude() : 100;
-                        double imgHeight = element.hasAttribute(Height.class) ? element.getAttribute(Height.class).getMagnitude() : 100;
+                        double imgWidth = element.hasAttribute(Width.class)
+                                ? element.getAttribute(Width.class).getMagnitude()
+                                : 100;
+                        double imgHeight = element.hasAttribute(Height.class)
+                                ? element.getAttribute(Height.class).getMagnitude()
+                                : 100;
                         double margin = 20.0;
                         imageRegions.add(new double[] {
-                            imgLeft - margin, imgTop - margin,
-                            imgLeft + imgWidth + margin, imgTop + imgHeight + margin
+                                imgLeft - margin, imgTop - margin,
+                                imgLeft + imgWidth + margin, imgTop + imgHeight + margin
                         });
                     }
                 }
             }
-            
+
             // 4. Process elements
             if (page.hasAttribute(PositionalContent.class)) {
                 for (Element element : page.getPositionalContent().getValue().getElements()) {
@@ -188,13 +210,15 @@ public class PdfRenderer implements Renderer<byte[]> {
                     } else if (element instanceof Image) {
                         renderImage(pdDocument, contentStream, (Image) element, height);
                     } else if (element instanceof HorizontalLine) {
-                        // Render line if it's part of a table OR part of an image/diagram region
-                        if (isTableLine(element, tableRegions) || isImageLine(element, imageRegions)) {
+                        // Render line only if it's part of a table structure
+                        // Do NOT render lines near images as they may cause black bars
+                        if (isTableLine(element, tableRegions)) {
                             renderHorizontalLine(contentStream, (HorizontalLine) element, height);
                         }
                     } else if (element instanceof VerticalLine) {
-                        // Render line if it's part of a table OR part of an image/diagram region
-                        if (isTableLine(element, tableRegions) || isImageLine(element, imageRegions)) {
+                        // Render line only if it's part of a table structure
+                        // Do NOT render lines near images as they may cause black bars
+                        if (isTableLine(element, tableRegions)) {
                             renderVerticalLine(contentStream, (VerticalLine) element, height);
                         }
                     }
@@ -206,7 +230,8 @@ public class PdfRenderer implements Renderer<byte[]> {
     /**
      * Determines if a line element is part of a table structure.
      * A line is considered a table line if it falls within or near a table region.
-     * Uses relaxed boundary checking to ensure border lines at table edges are included.
+     * Uses relaxed boundary checking to ensure border lines at table edges are
+     * included.
      */
     private boolean isTableLine(Element lineElement, java.util.List<double[]> tableRegions) {
         if (tableRegions.isEmpty()) {
@@ -216,7 +241,8 @@ public class PdfRenderer implements Renderer<byte[]> {
         double left = lineElement.getAttribute(Left.class).getMagnitude();
         double top = lineElement.getAttribute(Top.class).getMagnitude();
 
-        // Extra tolerance for border lines that may be slightly outside the calculated region
+        // Extra tolerance for border lines that may be slightly outside the calculated
+        // region
         double tolerance = 10.0;
 
         // For a line, we also need to check its extent
@@ -257,7 +283,7 @@ public class PdfRenderer implements Renderer<byte[]> {
 
         return false;
     }
-    
+
     /**
      * Determines if a line element is part of an image/diagram region.
      * This allows lines that make up figures/flowcharts to be rendered.
@@ -266,17 +292,17 @@ public class PdfRenderer implements Renderer<byte[]> {
         if (imageRegions.isEmpty()) {
             return false;
         }
-        
+
         double left = lineElement.getAttribute(Left.class).getMagnitude();
         double top = lineElement.getAttribute(Top.class).getMagnitude();
         double tolerance = 5.0;
-        
+
         for (double[] region : imageRegions) {
             double imgLeft = region[0] - tolerance;
             double imgTop = region[1] - tolerance;
             double imgRight = region[2] + tolerance;
             double imgBottom = region[3] + tolerance;
-            
+
             // Check if line is within the image region
             if (left >= imgLeft && left <= imgRight && top >= imgTop && top <= imgBottom) {
                 return true;
