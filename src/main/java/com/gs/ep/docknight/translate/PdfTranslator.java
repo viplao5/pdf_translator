@@ -20,7 +20,6 @@ import com.gs.ep.docknight.model.attribute.TextStyles;
 
 import com.gs.ep.docknight.model.converter.PdfParser;
 import com.gs.ep.docknight.model.element.Document;
-import com.gs.ep.docknight.model.element.GraphicalElement;
 import com.gs.ep.docknight.model.element.Page;
 import com.gs.ep.docknight.model.element.TextElement;
 import com.gs.ep.docknight.model.transformer.PositionalTextGroupingTransformer;
@@ -58,6 +57,13 @@ public class PdfTranslator {
     private static final Pattern LEVEL_2_PATTERN = Pattern.compile("(?s)^[\\(（][a-zA-Z0-9]+[\\)）]\\s*.*");
     private static final Pattern LABEL_PATTERN = Pattern.compile("(?s)^[A-Z][a-zA-Z]*:\\s+.*");
     private static final Pattern TOC_DOTS_PATTERN = Pattern.compile(".*\\.{4,}.*");
+
+    private static final Set<String> TRANSLATABLE_UPPERCASE_WORDS = new HashSet<>(java.util.Arrays.asList(
+            "NOTE", "DATE", "TIME", "PAGE", "PART", "ITEM", "TYPE", "SIZE", "UNIT", "CODE", "NAME",
+            "TEXT", "DATA", "FILE", "VIEW", "EDIT", "HELP", "STOP", "GO", "OK", "YES", "NO",
+            "ALL", "ADD", "NEW", "END", "TOP", "LOW", "MAX", "MIN", "SUM", "AVG", "SET", "GET",
+            "TABLE", "FIGURE", "INDEX", "ANNEX", "SECTION", "APPENDIX", "WARNING", "CAUTION", "NOTICE",
+            "YEAR", "MONTH", "DAY", "HOUR", "MINUTE", "SECOND"));
 
     public PdfTranslator(SiliconFlowClient translationClient) {
         this.translationClient = translationClient;
@@ -185,8 +191,10 @@ public class PdfTranslator {
             paraTexts.add(layoutAnalyzer.getBlockText(e));
         }
 
+        // List<String> paraTranslations = paraTexts.isEmpty() ? new ArrayList<>()
+        // : translationClient.translate(paraTexts, targetLanguage);
         List<String> paraTranslations = paraTexts.isEmpty() ? new ArrayList<>()
-                : translationClient.translate(paraTexts, targetLanguage);
+                : translateSmart(paraTexts, targetLanguage);
 
         int paraIdx = 0;
         for (int i = 0; i < consolidated.size(); i++) {
@@ -198,8 +206,13 @@ public class PdfTranslator {
                 double nextBlockTop = pageHeight; // 默认为页面底部
                 for (int j = i + 1; j < consolidated.size(); j++) {
                     LayoutEntity next = consolidated.get(j);
-                    // 找到下一个在当前块下方的块
-                    if (next.top > entity.top) {
+                    // 关键修复：只考虑水平方向上有重叠的块
+                    // 避免左栏的块限制右栏块的高度
+                    double overlap = Math.min(entity.right, next.right) - Math.max(entity.left, next.left);
+                    boolean horizontallyOverlaps = overlap > 10.0; // 至少 10pt 重叠才视为同一列的阻挡
+
+                    // 找到下一个在当前块下方的块，且在同一列（水平重叠）
+                    if (next.top > entity.top && horizontallyOverlaps) {
                         nextBlockTop = next.top;
                         break;
                     }
@@ -244,12 +257,11 @@ public class PdfTranslator {
         if (translatedText.trim().isEmpty())
             return;
 
-        RectangleProperties<Double> bbox = group.getTextBoundingBox();
-        // 记录段落的整体边界（所有行的最小左边界、最大右边界）
-        double overallLeft = bbox.getLeft(); // 整体最左边界
-        double overallRight = bbox.getRight(); // 整体最右边界
-        double top = bbox.getTop();
-        double bottom = bbox.getBottom();
+        // Use stable bounds from LayoutEntity instead of re-calculating from group
+        double overallLeft = entity.left;
+        double overallRight = entity.right;
+        double top = entity.top;
+        double bottom = entity.bottom;
 
         // 记录首行位置（可能有缩进）
         double firstLineLeft = entity.firstLineLeft;
@@ -262,7 +274,7 @@ public class PdfTranslator {
         double centerX = (overallLeft + overallRight) / 2.0;
 
         // 保存原始位置用于调试
-        double origLeft = overallLeft, origRight = overallRight, origTop = top, origBottom = bottom;
+        double origBottom = bottom;
 
         // 计算首行缩进（相对于整体左边界）
         // 正值表示首行比后续行更靠右（如 "a. xxx" 的缩进）
@@ -297,11 +309,11 @@ public class PdfTranslator {
         boolean startsFromStandardMargin = leftMargin < 80;
 
         // 居中检测条件：
-        // 条件1: 左右边距差异小于 15pt，且满足以下任一条件：
+        // 条件1: 左右边距差异小于 30pt (relaxed from 15pt)，且满足以下任一条件：
         // a) 左边距大于 100pt（明显居中）
         // b) 内容较短（< 40% 页宽，适合短标题）且不从标准边距开始
         // c) 左右边距都大于 100pt 且差异很小（< 10pt），适合宽标题
-        boolean marginsSymmetric = Math.abs(leftMargin - rightMargin) < 15;
+        boolean marginsSymmetric = Math.abs(leftMargin - rightMargin) < 30;
         // 提高 verySymmetric 的阈值：左右边距都需要 > 100pt
         boolean verySymmetric = Math.abs(leftMargin - rightMargin) < 10 && leftMargin > 100 && rightMargin > 100;
         boolean isSymmetricallyCentered = marginsSymmetric && !startsFromStandardMargin
@@ -388,16 +400,59 @@ public class PdfTranslator {
         // 只有真正并排的窄块才限制宽度（不从左边距开始，且不到达右边距）
         boolean preserveOriginalWidth = isNarrowBlock && isShortLine && !isCentered && !isStandaloneParagraph;
 
+        // 找到第一个 TextElement，跳过 Image 等非文本元素
+        Element textElement = null;
+        int textElementIndex = -1;
+        for (int i = 0; i < group.getElements().size(); i++) {
+            Element elem = group.getElements().get(i);
+            if (elem instanceof TextElement || elem.hasAttribute(Text.class)) {
+                textElement = elem;
+                textElementIndex = i;
+                break;
+            }
+        }
+
+        // 估算字体大小用于宽度计算
+        double estimatedFontSize = 10.0;
+        if (textElement != null && textElement.hasAttribute(FontSize.class)) {
+            estimatedFontSize = textElement.getAttribute(FontSize.class).getMagnitude();
+        }
+
         {
             if (isCentered) {
-                // 居中内容：使用对称的页面边距，让 TextAlign.CENTRE 生效
-                double margin = 60.0;
-                left = margin;
-                right = pageWidth - margin;
+                // 居中内容：手动计算居中位置，不依赖 TextAlign.CENTRE 自动定位
+                // 因为渲染器可能忽略 TextAlign 导致直接左对齐显示
+
+                // 1. 估算所需宽度
+                double avgCharWidth = estimatedFontSize * 0.9; // 中英文混合估算
+                // 找出最长的一行
+                String[] lines = translatedText.split("\n");
+                int maxLineLength = 0;
+                for (String line : lines) {
+                    if (line.length() > maxLineLength)
+                        maxLineLength = line.length();
+                }
+                double neededWidth = maxLineLength * avgCharWidth + 20; // +20 padding
+
+                // 2. 保持原始中心点，或者如果原始也不居中则使用页面中心
+                // 但通常 isCentered=true 意味着原始是视觉居中的
+                double blockCenter = centerX;
+
+                // 3. 计算新的左右边界 (Symmetrical around center)
+                double halfWidth = Math.max(originalWidth, neededWidth) / 2.0;
+
+                // 约束在页面边距内
+                double newLeft = Math.max(60.0, blockCenter - halfWidth);
+                double newRight = Math.min(pageWidth - 60.0, blockCenter + halfWidth);
+
+                // 重新调整宽度以保持数学居中 (取两边较小的可用宽度)
+                double availableHalfWidth = Math.min(blockCenter - newLeft, newRight - blockCenter);
+                left = blockCenter - availableHalfWidth;
+                right = blockCenter + availableHalfWidth;
+
             } else if (isRightAligned) {
                 // 右对齐内容：向左扩展宽度以避免折行，但保持右边界
                 // 估算翻译后文本需要的宽度（中文字符宽度约等于字体大小）
-                double estimatedFontSize = Math.max(9.0, bottom - top); // 从行高估算字体大小
                 // 中文字符宽度接近字体大小，英文约为 0.5-0.6 倍
                 // 对于混合文本，使用 0.9 作为平均系数，并加一些余量
                 double neededWidth = translatedText.length() * estimatedFontSize * 0.9 + 20;
@@ -414,27 +469,38 @@ public class PdfTranslator {
                 // 这种情况通常是标题行的一部分，与其他内容并排
                 // 不扩展右边界，保持原始宽度
                 // 只确保有足够宽度容纳翻译后的文本
-                double estimatedFontSize = Math.max(9.0, bottom - top);
                 double neededWidth = translatedText.length() * estimatedFontSize * 0.8 + 10;
                 if (neededWidth > originalWidth) {
                     // 需要更多宽度，适度扩展但不要太过
                     right = Math.min(left + neededWidth, pageWidth * 0.92);
                 }
             } else if (multiColumn) {
-                // Strict column boundaries for narrow multi-column content
-                if (area == 0 && right < pageWidth * 0.55) {
-                    // Sidebar-aware margin: Keep very-left elements (like page numbers) but push
-                    // main text
+                // 对于多栏布局，保持原始列边界，不要强制合并到两栏
+                if (area == 0) {
                     if (left > 55)
                         left = Math.max(60.0, left);
-                    right = pageWidth * 0.48;
+                    // 只有当明显是左栏内容且右侧有内容时才限制右边界
+                    if (right < pageWidth * 0.6) {
+                        right = Math.min(right + 20, pageWidth * 0.48);
+                    } else {
+                        right = pageWidth * 0.92;
+                    }
                 } else if (area == 1) {
-                    left = Math.max(pageWidth * 0.52, left);
+                    // 可能是中栏或右栏
+                    // 对于 3 栏，保持原始位置
+                    if (right > pageWidth * 0.7) {
+                        // 看起来是右栏
+                        left = Math.max(pageWidth * 0.52, left);
+                        right = pageWidth * 0.92;
+                    } else {
+                        // 可能是中栏，保持宽度
+                        right = Math.min(right + 20, pageWidth * 0.65);
+                    }
+                } else if (area == 2) {
+                    // 右栏 (3 栏情况)
+                    left = Math.max(pageWidth * 0.68, left);
                     right = pageWidth * 0.92;
                 } else {
-                    // Area -1, 0 (Wide/Title), or 2
-                    if (left > 55)
-                        left = Math.max(60.0, left);
                     right = pageWidth * 0.92;
                 }
             } else {
@@ -452,18 +518,6 @@ public class PdfTranslator {
             // Compact vertical spacing for lists: Replace double newlines with single to
             // prevent excessive height requirements that cause font shrinking or overlaps
             translatedText = translatedText.replaceAll("\n\\s*\n", "\n");
-        }
-
-        // 找到第一个 TextElement，跳过 Image 等非文本元素
-        Element textElement = null;
-        int textElementIndex = -1;
-        for (int i = 0; i < group.getElements().size(); i++) {
-            Element elem = group.getElements().get(i);
-            if (elem instanceof TextElement || elem.hasAttribute(Text.class)) {
-                textElement = elem;
-                textElementIndex = i;
-                break;
-            }
         }
 
         // 如果没有找到文本元素，跳过此段落的翻译
@@ -522,10 +576,7 @@ public class PdfTranslator {
 
         // 估算翻译文本需要的高度
         // 获取原始字体大小
-        double estimatedFontSize = 10.0;
-        if (textElement.hasAttribute(FontSize.class)) {
-            estimatedFontSize = textElement.getAttribute(FontSize.class).getMagnitude();
-        }
+        // estimatedFontSize already calculated above
         double lineHeight = estimatedFontSize * 1.4;
 
         // 目录行检测：包含连续点号的行是目录条目
@@ -959,7 +1010,9 @@ public class PdfTranslator {
             rawTexts.add(cellToJoinedText.get(p));
         }
 
-        List<String> translations = translationClient.translate(rawTexts, targetLanguage);
+        // List<String> translations = translationClient.translate(rawTexts,
+        // targetLanguage);
+        List<String> translations = translateSmart(rawTexts, targetLanguage);
 
         // 4. Update elements
         for (int i = 0; i < primaries.size(); i++) {
@@ -1047,7 +1100,10 @@ public class PdfTranslator {
         if (originalText.trim().isEmpty())
             return;
 
-        List<String> translations = translationClient.translate(Lists.mutable.of(originalText), targetLanguage);
+        // List<String> translations =
+        // translationClient.translate(Lists.mutable.of(originalText), targetLanguage);
+        List<String> translations = translateSmart(Lists.mutable.of(originalText),
+                targetLanguage);
         updateText(element, translations.get(0));
     }
 
@@ -1102,5 +1158,67 @@ public class PdfTranslator {
             }
         }
         return regions;
+    }
+
+    /**
+     * Smart translation wrapper that skips short uppercase abbreviations.
+     */
+    private List<String> translateSmart(List<String> texts, String targetLanguage) throws Exception {
+        if (texts.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        List<String> finalResult = new ArrayList<>(texts); // Initialize with originals
+        List<String> batch = new ArrayList<>();
+        List<Integer> batchIndices = new ArrayList<>();
+
+        for (int i = 0; i < texts.size(); i++) {
+            String text = texts.get(i);
+            if (!shouldSkipTranslation(text)) {
+                batch.add(text);
+                batchIndices.add(i);
+            }
+            // else: finalResult[i] is already 'text', which is what we want (skipped
+            // translation)
+        }
+
+        if (!batch.isEmpty()) {
+            List<String> translated = translationClient.translate(batch, targetLanguage);
+            // Safety check: if backend returns fewer items (shouldn't happen but good to be
+            // safe)
+            int count = Math.min(batch.size(), translated.size());
+            for (int k = 0; k < count; k++) {
+                finalResult.set(batchIndices.get(k), translated.get(k));
+            }
+        }
+
+        return finalResult;
+    }
+
+    /**
+     * Determines if translation should be skipped for a given text.
+     * Skips 1-6 character uppercase abbreviations (e.g. AM, PM, 2D, AFJI, AFMAN,
+     * ANSI).
+     * But allows common words like "NOTE", "DATE", "TABLE" to be translated.
+     */
+    private boolean shouldSkipTranslation(String text) {
+        if (text == null)
+            return true;
+        String trimmed = text.trim();
+
+        // Skip purely Uppercase/Numeric strings of length 1-6
+        // This covers "AM", "PM", "2D", "AFJI", "AFMAN", "ANSI", "MIL-STD" (if we allow
+        // hyphens)
+        // User examples: 2D, ADC, AFJI, AFMAN, AIT, AR, ARS, ANSI
+        // Regex: Start, 1-6 chars from [A-Z0-9.\-], End.
+        // Added '.' and '-' to allow "U.S." or "MIL-S" if short enough.
+        if (trimmed.matches("^[A-Z0-9\\.\\-]{1,6}$")) {
+            // Check allow-list for common words that SHOULD be translated even if uppercase
+            if (TRANSLATABLE_UPPERCASE_WORDS.contains(trimmed)) {
+                return false;
+            }
+            return true;
+        }
+        return false;
     }
 }
