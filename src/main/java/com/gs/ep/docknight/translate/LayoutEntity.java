@@ -25,7 +25,8 @@ public class LayoutEntity {
     public final double pageHeight;
     public final boolean isTable;
     public final double firstLineLeft;
-    public final double lastLineRight;  // 最后一行的右边界，用于判断"有空间但没用"
+    public double lastLineRight;  // 最后一行的右边界，用于判断"有空间但没用"
+                                // 注意：非final，因为merge后需要修正
 
     // Cache for expensive text extraction
     private String cachedText;
