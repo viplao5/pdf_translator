@@ -353,6 +353,10 @@ public class PdfRenderer implements Renderer<byte[]> {
             contentStream.setNonStrokingColor(java.awt.Color.BLACK);
         }
 
+        // Slight font size adjustment (make smaller by 1 as requested)
+        // Ensure effective font size doesn't drop too low before shrinking logic
+        fontSize = Math.max(6.0f, (float) fontSize - 1.0f);
+
         // Split text into lines (respecting existing newlines and first line indent)
         List<String> lines;
         if (firstLineIndent > 0) {
@@ -362,7 +366,7 @@ public class PdfRenderer implements Renderer<byte[]> {
             lines = wrapText(text, font, (float) fontSize, (float) elementWidth, (float) elementWidth);
         }
 
-        float lineHeightFactor = 1.4f; // More natural for CJK and fills space better
+        float lineHeightFactor = 1.4f; // reduced from 1.4f as requested
         float lineHeight = (float) fontSize * lineHeightFactor;
         float totalTextHeight = lines.size() * lineHeight;
 
@@ -398,7 +402,7 @@ public class PdfRenderer implements Renderer<byte[]> {
         // Scale down if text is too tall for its box, but with a floor
         if (totalTextHeight > elementHeight && elementHeight > 0) {
             float scale = (float) (elementHeight / totalTextHeight);
-            float minFontSize = 7.0f; // Minimum readable font size
+            float minFontSize = 10.0f; // Minimum readable font size - reduced slightly
 
             if (fontSize * scale < minFontSize) {
                 fontSize = minFontSize;
