@@ -704,7 +704,7 @@ public class PdfLayoutAnalyzer {
                 text.matches(".*\\.(com|org|gov|net|html?|php).*"));
     }
 
-    private boolean shouldMerge(LayoutEntity a, LayoutEntity b) {
+    boolean shouldMerge(LayoutEntity a, LayoutEntity b) {
         if (a.isTable || b.isTable)
             return false;
 
@@ -1026,12 +1026,21 @@ public class PdfLayoutAnalyzer {
         // 特征：A 以章节编号开头（如 "2.2."）且没到达页面右边缘，B 是续行（可能带引导点号）
         boolean isTocEntryStart = textA.matches("^\\d+\\.\\d*\\.?\\s+.*") || textA.matches("^[A-Z]\\.\\d+\\.?\\s+.*")
                 || textA.matches("^SECTION\\s+\\d+.*") || textA.matches("^GLOSSARY.*")
-                || textA.matches("^REFERENCES.*");
+                || textA.matches("^REFERENCES.*")
+                // Add FIGURE and TABLE as TOC entry starts
+                || textA.matches("^(?i)FIGURE\\s+\\d+.*") || textA.matches("^(?i)TABLE\\s+\\d+.*");
+
         boolean aEndsNearRightEdge = a.right > a.pageWidth * 0.85;
-        boolean bHasLeaderDots = textB.contains("....") || textB.contains("…");
+
+        // Update leader dots to include dashes "----" or "____"
+        boolean bHasLeaderDots = textB.contains("....") || textB.contains("…") || textB.contains("----")
+                || textB.contains("____");
+
         boolean bStartsWithSectionNumber = textB.matches("^\\d+\\.\\d*\\.?\\s+.*")
                 || textB.matches("^[A-Z]\\.\\d+\\.?\\s+.*")
-                || textB.matches("^SECTION\\s+\\d+.*");
+                || textB.matches("^SECTION\\s+\\d+.*")
+                // Add FIGURE and TABLE checking for B as well
+                || textB.matches("^(?i)FIGURE\\s+\\d+.*") || textB.matches("^(?i)TABLE\\s+\\d+.*");
 
         // 如果 A 是目录条目开头、没到右边缘、B 有引导点号且不是新条目、间距紧密 -> 合并为同一条目
         if (isTocEntryStart && !aEndsNearRightEdge && bHasLeaderDots && !bStartsWithSectionNumber && vGap < 8) {
@@ -1039,8 +1048,15 @@ public class PdfLayoutAnalyzer {
         }
 
         // TOC: 两行都包含引导点号且都是独立条目 -> 不合并
-        boolean aHasLeaderDots = textA.contains("....") || textA.contains("…");
+        boolean aHasLeaderDots = textA.contains("....") || textA.contains("…") || textA.contains("----")
+                || textA.contains("____");
         if (aHasLeaderDots && bHasLeaderDots)
+            return false;
+
+        // TOC protection: If both look like TOC entries (start with explicit
+        // indicators), do not merge
+        // This is important because they might look "centered" due to full width
+        if (isTocEntryStart && bStartsWithSectionNumber)
             return false;
 
         // 词汇表条目
@@ -1088,7 +1104,10 @@ public class PdfLayoutAnalyzer {
 
         // 如果两行都是居中的，且垂直间距很小，应该合并（如多行标题）
         // 这个检测优先于样式检测，因为居中标题可能有不同字体大小
-        if (aCentered && bCentered && vGap < 15) {
+        // Guard: Do not merge if they are distinct TOC entries (even if they look
+        // centered/symmetric)
+        boolean areDistinctTocEntries = isTocEntryStart && bStartsWithSectionNumber;
+        if (aCentered && bCentered && vGap < 15 && !areDistinctTocEntries) {
             return true;
         }
 
