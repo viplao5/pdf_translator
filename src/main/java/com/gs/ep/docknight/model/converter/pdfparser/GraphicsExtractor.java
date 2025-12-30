@@ -64,6 +64,7 @@ import org.apache.pdfbox.pdmodel.graphics.color.PDColor;
 import org.apache.pdfbox.pdmodel.graphics.color.PDDeviceGray;
 import org.apache.pdfbox.pdmodel.graphics.form.PDFormXObject;
 import org.apache.pdfbox.pdmodel.graphics.image.PDImage;
+import org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject;
 import org.apache.pdfbox.pdmodel.graphics.state.PDGraphicsState;
 import org.apache.pdfbox.rendering.PDFRenderer;
 import org.apache.pdfbox.util.Matrix;
@@ -117,6 +118,7 @@ class GraphicsExtractor extends PDFGraphicsStreamEngine {
   private int clipWindingRule = -1;
   private ExtractedLines extractedLines;
   private double totalImageArea;
+  private final MutableList<FormXObjectInfo> largeFormXObjects;
 
   GraphicsExtractor(PDPage page, PDDocument document, int pageNo, int textRotation,
       ParserSettings settings) {
@@ -137,6 +139,7 @@ class GraphicsExtractor extends PDFGraphicsStreamEngine {
     this.textClippers = Lists.mutable.of(new Area(this.pageRectangle));
     this.imageStrings = Lists.mutable.empty();
     this.handWrittenAreas = Lists.mutable.empty();
+    this.largeFormXObjects = Lists.mutable.empty();
   }
 
   /**
@@ -340,6 +343,14 @@ class GraphicsExtractor extends PDFGraphicsStreamEngine {
       COSBase base0 = operands.get(0);
       COSName objectName = (COSName) base0;
       PDXObject xobject = this.getResources().getXObject(objectName);
+      
+      // 记录所有XObject类型
+      if (xobject != null) {
+        String xobjectType = xobject.getClass().getSimpleName();
+      } else {
+        LOGGER.warn("XObject is null: {}", objectName.getName());
+      }
+      
       if (xobject instanceof PDFormXObject) {
         pdFormXObject = (PDFormXObject) xobject;
         bBox = pdFormXObject.getBBox();
@@ -348,6 +359,37 @@ class GraphicsExtractor extends PDFGraphicsStreamEngine {
                 bBox.getHeight());
         pdFormXObject.setBBox(new PDRectangle((float) adjBbox.getMinX(), (float) adjBbox.getMinY(),
             (float) adjBbox.getWidth(), (float) adjBbox.getHeight()));
+        
+        // Check if FormXObject contains internal image resources
+        int imageCount = 0;
+        try {
+          if (pdFormXObject.getResources() != null && 
+              pdFormXObject.getResources().getXObjectNames() != null) {
+            for (COSName name : pdFormXObject.getResources().getXObjectNames()) {
+              PDXObject innerXObject = pdFormXObject.getResources().getXObject(name);
+              if (innerXObject instanceof PDImageXObject) {
+                imageCount++;
+              }
+            }
+          }
+        } catch (Exception e) {
+          LOGGER.warn("Error checking FormXObject resources: {}", e.getMessage());
+        }
+        
+        // 检查是否是大型FormXObject（可能包含复杂矢量图形）
+        double formWidth = bBox.getWidth();
+        double formHeight = bBox.getHeight();
+        double formArea = formWidth * formHeight;
+        double formRatio = formArea / this.pageArea;
+        
+        // If FormXObject is large (>5% of page) and has no internal images, mark for rendering
+        if (formRatio > 0.05 && imageCount == 0) {
+          this.largeFormXObjects.add(new FormXObjectInfo(
+              objectName.getName(),
+              bBox,
+              this.getGraphicsState().getCurrentTransformationMatrix()
+          ));
+        }
       }
     }
     try {
@@ -433,9 +475,10 @@ class GraphicsExtractor extends PDFGraphicsStreamEngine {
     if (!this.images.isEmpty()) {
       return this.images;
     }
-    // 没有被添加的图片，检查是否是扫描页面（大面积图像覆盖）
-    return this.totalImageArea / this.pageArea < SCANNED_PAGE_IMAGE_BY_PAGE_AREA_RATIO ? this.images
-        : Lists.mutable.empty();
+    // Check if this is a scanned page (large image area coverage)
+    double scannedRatio = this.totalImageArea / this.pageArea;
+    boolean isScanned = scannedRatio >= SCANNED_PAGE_IMAGE_BY_PAGE_AREA_RATIO;
+    return isScanned ? Lists.mutable.empty() : this.images;
   }
 
   public double getTotalImageArea() {
@@ -444,6 +487,10 @@ class GraphicsExtractor extends PDFGraphicsStreamEngine {
 
   public List<ImageString> getImageStrings() {
     return this.imageStrings;
+  }
+
+  public List<FormXObjectInfo> getLargeFormXObjects() {
+    return this.largeFormXObjects;
   }
 
   /**
@@ -470,11 +517,8 @@ class GraphicsExtractor extends PDFGraphicsStreamEngine {
     Point2D imageXY = this.adjustedPage.getXYAdj(matrix.getTranslateX(), matrix.getTranslateY());
     this.totalImageArea += imageArea;
     
-    // Debug: log image detection
+    // Debug: 记录所有检测到的图片
     double ratio = imageArea / this.pageArea;
-    // LOGGER.debug("drawImage: size={}x{}, pos=({},{}), ratio={:.2f}%, threshold={:.2f}%",
-    //     imageWidth, imageHeight, imageXY.getX(), imageXY.getY(), 
-    //     ratio * 100, MAX_IMAGE_BY_PAGE_AREA_RATIO * 100);
 
     if (imageArea / this.pageArea <= MAX_IMAGE_BY_PAGE_AREA_RATIO && imageHeight >= THRESHOLD
         && imageWidth >= THRESHOLD) {
@@ -494,9 +538,19 @@ class GraphicsExtractor extends PDFGraphicsStreamEngine {
         }
       }
       this.images.add(image);
-      // LOGGER.info("Image added: size={}x{}, top={}", imageWidth, imageHeight, 
-      //     this.pageHeight - imageXY.getY() - imageHeight);
-    } else if (imageHeight < 2 * THRESHOLD && imageWidth < 2 * THRESHOLD && this.settings
+    } else {
+      // 记录被过滤的图片
+      String reason = "";
+      if (imageArea / this.pageArea > MAX_IMAGE_BY_PAGE_AREA_RATIO) {
+        reason = "面积比超过阈值";
+      } else if (imageHeight < THRESHOLD) {
+        reason = "高度小于阈值(" + THRESHOLD + ")";
+      } else if (imageWidth < THRESHOLD) {
+        reason = "宽度小于阈值(" + THRESHOLD + ")";
+      }
+    }
+    
+    if (imageHeight < 2 * THRESHOLD && imageWidth < 2 * THRESHOLD && this.settings
         .isImageBasedCharDetection())  // look for image based characters
     {
       BufferedImage image = pdImage.getImage();
@@ -743,6 +797,21 @@ class GraphicsExtractor extends PDFGraphicsStreamEngine {
       pathIterator.next();
     }
     return new ExtractedLines(horizontalLines, verticalLines, DISTINCT_EPSILON);
+  }
+
+  /**
+   * Class to represent FormXObject information for rendering
+   */
+  static final class FormXObjectInfo {
+    public String name;
+    public PDRectangle bbox;
+    public Matrix transformMatrix;
+    
+    FormXObjectInfo(String name, PDRectangle bbox, Matrix transformMatrix) {
+      this.name = name;
+      this.bbox = bbox;
+      this.transformMatrix = transformMatrix;
+    }
   }
 
   /**

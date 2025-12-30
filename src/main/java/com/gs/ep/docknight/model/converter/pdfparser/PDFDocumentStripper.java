@@ -16,6 +16,7 @@
 
 package com.gs.ep.docknight.model.converter.pdfparser;
 
+import org.apache.pdfbox.pdmodel.common.PDRectangle;
 import org.eclipse.collections.api.block.function.Function;
 import org.eclipse.collections.api.list.MutableList;
 import org.eclipse.collections.api.map.MutableMap;
@@ -1161,6 +1162,35 @@ public class PDFDocumentStripper extends PDFTextStripper {
     GraphicsExtractor graphicsExtractor = new GraphicsExtractor(page, this.pdDocument,
         this.pages.size(), this.textRotation, this.settings);
     graphicsExtractor.processPage(page);
+    
+    // 获取页面尺寸（此时this.pageWidth和this.pageHeight还是0，需要从graphicsExtractor获取）
+    double pageWidth = graphicsExtractor.getPageWidth();
+    double pageHeight = graphicsExtractor.getPageHeight();
+    
+    // 获取大型FormXObject列表并渲染为图片
+    List<GraphicsExtractor.FormXObjectInfo> largeFormXObjects = 
+        graphicsExtractor.getLargeFormXObjects();
+    
+    if (!largeFormXObjects.isEmpty()) {
+      
+      for (GraphicsExtractor.FormXObjectInfo formInfo : largeFormXObjects) {
+        try {
+          Image renderedImage = renderFormXObjectAsImage(
+              this.pages.size(), 
+              formInfo, 
+              page,
+              pageWidth,
+              pageHeight
+          );
+          if (renderedImage != null) {
+            this.images.add(renderedImage);
+          }
+        } catch (Exception e) {
+          LOGGER.warn("Failed to render FormXObject: {}", e.getMessage());
+        }
+      }
+    }
+    
     this.layoutAreas = Lists.mutable.empty();
     this.layoutAreas.addAll(ListIterate.collect(graphicsExtractor.getHandWrittenAreas(),
         r -> Tuples.pair(r, PageLayout.HAND_WRITTEN)));
@@ -1170,7 +1200,8 @@ public class PDFDocumentStripper extends PDFTextStripper {
     this.pageHeight = graphicsExtractor.getPageHeight();
     this.isPagePerpendicularlyFlipped = graphicsExtractor.getAdjustedPage()
         .isPagePerpendicularlyFlipped();
-    this.images.addAll(graphicsExtractor.getImages());
+    List<Image> extractedImages = graphicsExtractor.getImages();
+    this.images.addAll(extractedImages);
     this.otherElements.addAll(this.formElementsByPage.get(this.pages.size()));
     List<HorizontalLine> mergedHorizontalLines = graphicsExtractor.getMergedHorizontalLines();
     this.otherElements.addAll(mergedHorizontalLines);
@@ -1238,23 +1269,22 @@ public class PDFDocumentStripper extends PDFTextStripper {
 
     this.processPage();
 
-    // 禁用自动检测图形区域功能 - PDF中的图片已通过GraphicsExtractor正确提取
-    // 这个功能会导致空白区域被不必要地渲染，并可能包含原始英文文本
-    // detectAndRenderFigureRegions();
 
-    // 只有当页面没有文本、没有图片、没有其他元素时才认为是"仅图像"页面
-    // 如果有图片元素（如图表、流程图），不应该被视为扫描PDF
+    // Only consider as "image-only" page if there's no text, images, or other elements
+    
     if (this.textElements.isEmpty() && this.images.isEmpty() && this.otherElements.isEmpty()) {
       this.numOfPagesWithImagesOnly++;
       this.settings.getBadPageSignaler().accept(this.pages.size());
     }
+    
+    MutableList<Element> allElements = this.textElements.withAll(this.images).withAll(this.otherElements);
+    MutableList<Element> filteredElements = allElements.select(this::isInsidePage);
+    
     Page newPage = new Page()
         .add(new Height(new Length(this.pageHeight, Unit.pt)))
         .add(new Width(new Length(this.pageWidth, Unit.pt)))
         .add(new PageColor(this.coloredAreas))
-        .add(new PositionalContent(new PositionalElementList<>(
-            this.textElements.withAll(this.images).withAll(this.otherElements)
-                .select(this::isInsidePage))));
+        .add(new PositionalContent(new PositionalElementList<>(filteredElements)));
 
     if (!this.layoutAreas.isEmpty()) {
       newPage.add(new PageLayout(this.layoutAreas));
@@ -1297,139 +1327,12 @@ public class PDFDocumentStripper extends PDFTextStripper {
     double top = element.getAttribute(Top.class).getMagnitude();
     double right = left + element.getAttributeValue(Width.class, Length.ZERO).getMagnitude();
     double bottom = top + element.getAttributeValue(Height.class, Length.ZERO).getMagnitude();
-    return left <= this.pageWidth && top <= this.pageHeight && right >= 0 && bottom >= 0;
+    boolean isInside = left <= this.pageWidth && top <= this.pageHeight && right >= 0 && bottom >= 0;
+    
+    
+    return isInside;
   }
 
-  /**
-   * 检测页面中的图形区域（文本间的大间隙）并从原始PDF渲染为图像
-   * 这允许矢量图形（流程图、图表等）被正确保留
-   * 注意：如果该区域已经有提取的图片，则不需要重新渲染
-   */
-  private void detectAndRenderFigureRegions() {
-    if (this.textElements.isEmpty() || this.pdDocument == null) {
-      return;
-    }
-
-    // 按top位置排序文本元素
-    MutableList<Element> sorted = Lists.mutable.withAll(this.textElements);
-    sorted.sortThis((a, b) -> {
-      double topA = a.getAttribute(Top.class).getMagnitude();
-      double topB = b.getAttribute(Top.class).getMagnitude();
-      return Double.compare(topA, topB);
-    });
-
-    double minGapForFigure = 100.0; // 至少100pt的间隙才认为是图形区域
-    int pageIndex = this.pages.size(); // 当前页面索引
-
-    for (int i = 0; i < sorted.size() - 1; i++) {
-      Element current = sorted.get(i);
-      Element next = sorted.get(i + 1);
-
-      double currentBottom = current.getAttribute(Top.class).getMagnitude()
-          + current.getAttributeValue(Height.class, Length.ZERO).getMagnitude();
-      double nextTop = next.getAttribute(Top.class).getMagnitude();
-      double gap = nextTop - currentBottom;
-
-      if (gap > minGapForFigure) {
-        // 检查这个间隙区域是否已经有提取的图片
-        // 如果有，则不需要重新从PDF渲染（避免包含原始英文文本）
-        boolean hasExistingImage = false;
-        for (Element existingImage : this.images) {
-          double imgTop = existingImage.getAttribute(Top.class).getMagnitude();
-          double imgBottom = imgTop + existingImage.getAttributeValue(Height.class, Length.ZERO).getMagnitude();
-
-          // 检查图片是否在这个间隙区域内（允许一些重叠）
-          if (imgTop >= currentBottom - 10 && imgBottom <= nextTop + 10) {
-            hasExistingImage = true;
-            break;
-          }
-          // 或者图片与间隙区域有显著重叠
-          double overlapTop = Math.max(imgTop, currentBottom);
-          double overlapBottom = Math.min(imgBottom, nextTop);
-          if (overlapBottom > overlapTop) {
-            double overlapRatio = (overlapBottom - overlapTop) / gap;
-            if (overlapRatio > 0.5) {
-              hasExistingImage = true;
-              break;
-            }
-          }
-        }
-
-        if (hasExistingImage) {
-          // 已经有图片在这个区域，跳过
-          continue;
-        }
-
-        // 检查下一个元素是否是图片标题
-        String nextText = "";
-        if (next.hasAttribute(Text.class)) {
-          nextText = next.getAttribute(Text.class).getValue().trim().toLowerCase();
-        }
-        boolean isFigureCaption = nextText.startsWith("figure ") ||
-            nextText.startsWith("fig.") ||
-            nextText.startsWith("图") ||
-            nextText.matches("^图\\s*\\d+.*");
-
-        if (isFigureCaption || gap > 150) {
-          // 渲染这个区域为图像
-          try {
-            Image figureImage = renderRegionAsImage(pageIndex, currentBottom, nextTop);
-            if (figureImage != null) {
-              this.images.add(figureImage);
-            }
-          } catch (Exception e) {
-            LOGGER.warn("Failed to render figure region: {}", e.getMessage());
-          }
-        }
-      }
-    }
-  }
-
-  /**
-   * 将PDF页面的指定区域渲染为图像
-   */
-  private Image renderRegionAsImage(int pageIndex, double top, double bottom) {
-    try {
-      PDFRenderer renderer = new PDFRenderer(this.pdDocument);
-      // 以150 DPI渲染整个页面
-      float scale = 150f / 72f; // 150 DPI
-      BufferedImage fullPageImage = renderer.renderImage(pageIndex, scale);
-
-      // 给顶部添加边距，避免包含上方文本的一部分
-      // 文本元素的底部边界可能不精确，所以我们需要留一些空间
-      double topMargin = 15.0; // 15pt 边距
-      double adjustedTop = top + topMargin;
-
-      // 计算要裁剪的区域（考虑缩放）
-      int imgTop = (int) (adjustedTop * scale);
-      int imgBottom = (int) (bottom * scale);
-      int imgHeight = imgBottom - imgTop;
-
-      if (imgHeight <= 0 || imgTop < 0 || imgBottom > fullPageImage.getHeight()) {
-        return null;
-      }
-
-      // 裁剪图像
-      BufferedImage croppedImage = fullPageImage.getSubimage(
-          0, imgTop, fullPageImage.getWidth(), imgHeight);
-
-      // 创建Image元素 - 使用调整后的顶部位置
-      double regionHeight = bottom - adjustedTop;
-      double regionWidth = this.pageWidth;
-
-      Image image = new Image();
-      image.add(new Top(new Length(adjustedTop, Unit.pt))); // 使用调整后的顶部位置
-      image.add(new Left(new Length(0, Unit.pt)));
-      image.add(new Width(new Length(regionWidth, Unit.pt)));
-      image.add(new Height(new Length(regionHeight, Unit.pt)));
-      image.add(new ImageData(new ComparableBufferedImage(croppedImage)));
-
-      return image;
-    } catch (Exception e) {
-      LOGGER.warn("Error rendering region as image: {}", e.getMessage());
-      return null;
-    }
-  }
 
   @Override
   protected void startDocument(PDDocument document) throws IOException {
@@ -1442,6 +1345,28 @@ public class PDFDocumentStripper extends PDFTextStripper {
 
   @Override
   protected void endDocument(PDDocument document) throws IOException {
+    
+    // 统计每页的图片数量
+    for (int i = 0; i < this.pages.size(); i++) {
+      Element page = this.pages.get(i);
+      if (page instanceof Page) {
+        Page p = (Page) page;
+        PositionalContent content = p.getAttribute(PositionalContent.class);
+        if (content != null) {
+          List<Element> elements = content.getValue().getElements();
+          int imageCount = 0;
+          int textCount = 0;
+          for (Element element : elements) {
+            if (element instanceof Image) {
+              imageCount++;
+            } else if (element instanceof TextElement) {
+              textCount++;
+            }
+          }
+        }
+      }
+    }
+    
     this.document = new Document()
         .add(new Content(new ElementList<>(this.pages)));
     if (this.pages.size() == this.numOfPagesWithBadGlyphs) {
@@ -1668,6 +1593,288 @@ public class PDFDocumentStripper extends PDFTextStripper {
     private static String makeNonNull(String str) {
       return str == null ? "" : str;
     }
+  }
+
+  /**
+   * 裁剪结果，包含裁剪后的图片和偏移量
+   */
+  private static class TrimResult {
+    BufferedImage image;
+    int leftOffset;
+    int topOffset;
+    
+    TrimResult(BufferedImage image, int leftOffset, int topOffset) {
+      this.image = image;
+      this.leftOffset = leftOffset;
+      this.topOffset = topOffset;
+    }
+  }
+  
+  /**
+   * 智能裁剪图片周围的空白或单色区域
+   * 特别处理：如果顶部有大片文本区域（黑色像素密度高），则裁剪掉
+   * @return 裁剪结果，包含图片和偏移量
+   */
+  private TrimResult trimWhitespaceWithOffset(BufferedImage image) {
+    int width = image.getWidth();
+    int height = image.getHeight();
+    
+    // 找到非空白区域的边界
+    int top = 0;
+    int left = 0;
+    int right = width - 1;
+    int bottom = height - 1;
+    
+    // 从上往下扫描，找到第一行有内容的位置
+    topScan:
+    for (int y = 0; y < height; y++) {
+      for (int x = 0; x < width; x++) {
+        if (!isBackgroundPixel(image, x, y)) {
+          top = y;
+          break topScan;
+        }
+      }
+    }
+    
+    // 特殊处理：检测顶部是否有文本区域（通过检测黑色像素密度）
+    // 如果顶部20%的区域有大量黑色像素（文本），则跳过这部分
+    int textCheckHeight = Math.min(height / 5, 150); // 检查顶部20%或最多150像素
+    int textThreshold = (int) (width * 0.3); // 如果一行有30%以上的黑色像素，认为是文本行
+    
+    for (int y = top; y < top + textCheckHeight && y < height; y++) {
+      int blackPixelCount = 0;
+      for (int x = 0; x < width; x++) {
+        if (isTextPixel(image, x, y)) {
+          blackPixelCount++;
+        }
+      }
+      
+      // 如果这一行有很多黑色像素（可能是文本），继续向下找
+      if (blackPixelCount > textThreshold) {
+        // 找到文本区域的结束位置
+        int textEndY = y;
+        for (int yy = y + 1; yy < height && yy < y + 100; yy++) {
+          int blackCount = 0;
+          for (int x = 0; x < width; x++) {
+            if (isTextPixel(image, x, yy)) {
+              blackCount++;
+            }
+          }
+          if (blackCount > textThreshold / 2) {
+            textEndY = yy;
+          } else if (yy - textEndY > 20) {
+            // 连续20行没有文本，认为文本区域结束
+            break;
+          }
+        }
+        
+        // 跳过文本区域，再向下找30像素作为新的top
+        top = Math.min(height - 1, textEndY + 30);
+        break;
+      }
+    }
+    
+    // 从下往上扫描
+    bottomScan:
+    for (int y = height - 1; y >= top; y--) {
+      for (int x = 0; x < width; x++) {
+        if (!isBackgroundPixel(image, x, y)) {
+          bottom = y;
+          break bottomScan;
+        }
+      }
+    }
+    
+    // 从左往右扫描
+    leftScan:
+    for (int x = 0; x < width; x++) {
+      for (int y = top; y <= bottom; y++) {
+        if (!isBackgroundPixel(image, x, y)) {
+          left = x;
+          break leftScan;
+        }
+      }
+    }
+    
+    // 从右往左扫描
+    rightScan:
+    for (int x = width - 1; x >= left; x--) {
+      for (int y = top; y <= bottom; y++) {
+        if (!isBackgroundPixel(image, x, y)) {
+          right = x;
+          break rightScan;
+        }
+      }
+    }
+    
+    // 添加一些边距（3%）
+    int margin = Math.min(8, Math.min(width, height) / 30);
+    left = Math.max(0, left - margin);
+    top = Math.max(0, top - margin);
+    right = Math.min(width - 1, right + margin);
+    bottom = Math.min(height - 1, bottom + margin);
+    
+    int newWidth = right - left + 1;
+    int newHeight = bottom - top + 1;
+    
+    // If trimmed image is too small (<30% of original), don't trim
+    if (newWidth < width * 0.3 || newHeight < height * 0.3) {
+      return new TrimResult(image, 0, 0);
+    }
+    
+    // If trimming effect is minimal (>95% of original), don't trim
+    if (newWidth > width * 0.95 && newHeight > height * 0.95) {
+      return new TrimResult(image, 0, 0);
+    }
+    
+    BufferedImage croppedImage = image.getSubimage(left, top, newWidth, newHeight);
+    return new TrimResult(croppedImage, left, top);
+  }
+  
+  /**
+   * 判断像素是否为背景色（白色）
+   */
+  private boolean isBackgroundPixel(BufferedImage image, int x, int y) {
+    int rgb = image.getRGB(x, y);
+    int r = (rgb >> 16) & 0xFF;
+    int g = (rgb >> 8) & 0xFF;
+    int b = rgb & 0xFF;
+    
+    // 只检测白色或接近白色的背景
+    // RGB都大于245的认为是白色背景
+    if (r > 245 && g > 245 && b > 245) {
+      return true;
+    }
+    
+    return false;
+  }
+  
+  /**
+   * 判断像素是否为文本像素（黑色或深色）
+   */
+  private boolean isTextPixel(BufferedImage image, int x, int y) {
+    int rgb = image.getRGB(x, y);
+    int r = (rgb >> 16) & 0xFF;
+    int g = (rgb >> 8) & 0xFF;
+    int b = rgb & 0xFF;
+    
+    // 黑色或深色像素（RGB都小于80）认为是文本
+    if (r < 80 && g < 80 && b < 80) {
+      return true;
+    }
+    
+    return false;
+  }
+  
+  /**
+   * 将FormXObject区域渲染为图片
+   */
+  private Image renderFormXObjectAsImage(int pageIndex, 
+      GraphicsExtractor.FormXObjectInfo formInfo, PDPage page,
+      double pageWidth, double pageHeight) throws IOException {
+    
+    // 渲染整个页面
+    PDFRenderer renderer = new PDFRenderer(this.pdDocument);
+    float scale = 150f / 72f; // 150 DPI
+    BufferedImage fullPageImage = renderer.renderImage(pageIndex, scale);
+    
+    // 计算FormXObject在页面上的位置
+    // 变换矩阵将FormXObject的BBox坐标转换到页面坐标
+    Matrix matrix = formInfo.transformMatrix;
+    PDRectangle bbox = formInfo.bbox;
+    
+    
+    // 变换矩阵 [a, b, c, d, e, f] 的含义：
+    // x' = a*x + c*y + e
+    // y' = b*x + d*y + f
+    // 对于标准的缩放+平移矩阵（无旋转），b=c=0
+    // 此时 a 和 d 是缩放因子，e 和 f 是平移量
+    
+    // 但是！这里的关键理解是：
+    // 矩阵不是应用在BBox上，而是定义了FormXObject在页面上的CTM（当前变换矩阵）
+    // FormXObject的内容会按照这个CTM进行变换
+    
+    // 从截图看，徽章在页面中央偏上，大约占据页面宽度的1/3
+    // 页面宽度612pt，徽章宽度应该约200pt左右
+    // 但BBox宽度是275.27，缩放后是877.62，这明显不对
+    
+    // 让我们重新理解：BBox定义的是FormXObject的"用户空间"
+    // 当FormXObject被放置到页面时，它的BBox通过CTM变换到页面坐标
+    // 但CTM不是简单的"缩放BBox"，而是"FormXObject内部1个单位对应页面上多少单位"
+    
+    // 正确的理解：如果BBox是[0,0,275.27,285.81]，CTM的缩放是[3.19, 3.02]
+    // 那么FormXObject内部的1个单位 = 页面上的3.19/3.02个单位
+    // 但这不意味着BBox的尺寸要乘以缩放因子！
+    
+    // 实际上，从原始PDF看，徽章的实际尺寸应该就是BBox的尺寸（或接近）
+    // 让我们直接使用BBox尺寸，而不是缩放后的尺寸
+    double pdfLeft = matrix.getTranslateX();
+    double pdfBottom = matrix.getTranslateY();
+    double pdfWidth = bbox.getWidth();  // 不乘以缩放因子！
+    double pdfHeight = bbox.getHeight(); // 不乘以缩放因子！
+    
+    
+    // 转换到页面顶部为原点的坐标系
+    // PDF坐标系：原点在左下角，Y轴向上
+    // 我们的坐标系：原点在左上角，Y轴向下
+    double topFromPageTop = pageHeight - pdfBottom - pdfHeight;
+    
+    
+    // 计算裁剪区域（应用DPI缩放）
+    int imgLeft = (int) Math.round(pdfLeft * scale);
+    int imgTop = (int) Math.round(topFromPageTop * scale);
+    int imgWidth = (int) Math.round(pdfWidth * scale);
+    int imgHeight = (int) Math.round(pdfHeight * scale);
+    
+    
+    // 边界检查并裁剪到有效范围
+    int cropLeft = Math.max(0, imgLeft);
+    int cropTop = Math.max(0, imgTop);
+    int cropRight = Math.min(fullPageImage.getWidth(), imgLeft + imgWidth);
+    int cropBottom = Math.min(fullPageImage.getHeight(), imgTop + imgHeight);
+    int cropWidth = cropRight - cropLeft;
+    int cropHeight = cropBottom - cropTop;
+    
+    if (cropWidth <= 0 || cropHeight <= 0) {
+      LOGGER.warn("FormXObject crop region is completely out of bounds");
+      return null;
+    }
+    
+    // 裁剪图片
+    BufferedImage croppedImage = fullPageImage.getSubimage(
+        cropLeft, cropTop, cropWidth, cropHeight
+    );
+    
+    // 智能裁剪：去除图片周围的空白/单色区域
+    TrimResult trimResult = trimWhitespaceWithOffset(croppedImage);
+    BufferedImage trimmedImage = trimResult.image;
+    
+    // 计算裁剪后的尺寸调整
+    double trimRatioWidth = (double) trimmedImage.getWidth() / croppedImage.getWidth();
+    double trimRatioHeight = (double) trimmedImage.getHeight() / croppedImage.getHeight();
+    
+    // 调整PDF坐标以匹配裁剪后的图片
+    double trimmedWidth = pdfWidth * trimRatioWidth;
+    double trimmedHeight = pdfHeight * trimRatioHeight;
+    
+    // 使用实际的裁剪偏移量（而不是居中假设）
+    double leftOffset = trimResult.leftOffset / scale;
+    double topOffset = trimResult.topOffset / scale;
+    
+    double finalLeft = pdfLeft + leftOffset;
+    double finalTop = topFromPageTop + topOffset;
+    
+    
+    // 创建Image元素（使用调整后的PDF坐标）
+    Image image = new Image();
+    image.add(new Top(new Length(finalTop, Unit.pt)));
+    image.add(new Left(new Length(finalLeft, Unit.pt)));
+    image.add(new Width(new Length(trimmedWidth, Unit.pt)));
+    image.add(new Height(new Length(trimmedHeight, Unit.pt)));
+    image.add(new ImageData(new ComparableBufferedImage(trimmedImage)));
+    
+    
+    return image;
   }
 
   /**

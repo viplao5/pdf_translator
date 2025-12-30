@@ -179,9 +179,11 @@ public class PdfRenderer implements Renderer<byte[]> {
                 }
             }
 
-            // 3. Collect image regions for line preservation (diagrams/figures)
+            // 3. Collect image/diagram regions for line preservation
+            // This includes both Image elements and dense line clusters (vector graphics)
             java.util.List<double[]> imageRegions = new java.util.ArrayList<>();
             if (page.hasAttribute(PositionalContent.class)) {
+                // Add regions around Image elements
                 for (Element element : page.getPositionalContent().getValue().getElements()) {
                     if (element instanceof Image && element.hasAttribute(Left.class)
                             && element.hasAttribute(Top.class)) {
@@ -210,14 +212,12 @@ public class PdfRenderer implements Renderer<byte[]> {
                     } else if (element instanceof Image) {
                         renderImage(pdDocument, contentStream, (Image) element, height);
                     } else if (element instanceof HorizontalLine) {
-                        // Render line only if it's part of a table structure
-                        // Do NOT render lines near images as they may cause black bars
+                        // Only render lines that are part of tables
                         if (isTableLine(element, tableRegions)) {
                             renderHorizontalLine(contentStream, (HorizontalLine) element, height);
                         }
                     } else if (element instanceof VerticalLine) {
-                        // Render line only if it's part of a table structure
-                        // Do NOT render lines near images as they may cause black bars
+                        // Only render lines that are part of tables
                         if (isTableLine(element, tableRegions)) {
                             renderVerticalLine(contentStream, (VerticalLine) element, height);
                         }
@@ -284,32 +284,6 @@ public class PdfRenderer implements Renderer<byte[]> {
         return false;
     }
 
-    /**
-     * Determines if a line element is part of an image/diagram region.
-     * This allows lines that make up figures/flowcharts to be rendered.
-     */
-    private boolean isImageLine(Element lineElement, java.util.List<double[]> imageRegions) {
-        if (imageRegions.isEmpty()) {
-            return false;
-        }
-
-        double left = lineElement.getAttribute(Left.class).getMagnitude();
-        double top = lineElement.getAttribute(Top.class).getMagnitude();
-        double tolerance = 5.0;
-
-        for (double[] region : imageRegions) {
-            double imgLeft = region[0] - tolerance;
-            double imgTop = region[1] - tolerance;
-            double imgRight = region[2] + tolerance;
-            double imgBottom = region[3] + tolerance;
-
-            // Check if line is within the image region
-            if (left >= imgLeft && left <= imgRight && top >= imgTop && top <= imgBottom) {
-                return true;
-            }
-        }
-        return false;
-    }
 
     private void renderText(PDPageContentStream contentStream, TextElement element, double pageHeight)
             throws IOException {
