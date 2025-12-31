@@ -60,15 +60,18 @@ public class PdfLayoutAnalyzer {
     private boolean preDetectedMultiColumn = false;
     private double currentPageWidth = 0;
 
+    // 页面的最大右边界（用于约束合并判断和翻译输出）
+    private double maxPageRightBoundary = 0;
+
     public PdfLayoutAnalyzer() {
         this.strategyFactory = new PageLayoutStrategyFactory();
     }
 
     /**
      * 使用策略模式分析页面（推荐方式）
-     * 
+     *
      * 自动检测页面类型并应用相应的处理策略。
-     * 
+     *
      * @param page 要分析的页面
      * @return 提取的布局实体列表
      */
@@ -76,13 +79,18 @@ public class PdfLayoutAnalyzer {
         double pageWidth = page.getAttribute(Width.class).getValue().getMagnitude();
         double pageHeight = page.getAttribute(Height.class).getValue().getMagnitude();
 
+        // 计算最大右边界
+        List<Element> allRaw = Lists.mutable.ofAll(page.getContainingElements(e -> true));
+        this.maxPageRightBoundary = calculateMaxRightBoundary(page, allRaw);
+        System.out.println("=== Max Right Boundary: " + maxPageRightBoundary + " (pageWidth=" + pageWidth + ") ===");
+
         PageLayoutStrategy strategy = strategyFactory.createStrategy(page);
         return strategy.analyzePage(page, pageWidth, pageHeight);
     }
 
     /**
      * 使用指定策略类型分析页面
-     * 
+     *
      * @param page     要分析的页面
      * @param pageType 指定的页面类型
      * @return 提取的布局实体列表
@@ -90,6 +98,11 @@ public class PdfLayoutAnalyzer {
     public List<LayoutEntity> analyzePageWithStrategy(Page page, PageType pageType) {
         double pageWidth = page.getAttribute(Width.class).getValue().getMagnitude();
         double pageHeight = page.getAttribute(Height.class).getValue().getMagnitude();
+
+        // 计算最大右边界
+        List<Element> allRaw = Lists.mutable.ofAll(page.getContainingElements(e -> true));
+        this.maxPageRightBoundary = calculateMaxRightBoundary(page, allRaw);
+        System.out.println("=== Max Right Boundary: " + maxPageRightBoundary + " (pageWidth=" + pageWidth + ") ===");
 
         PageLayoutStrategy strategy = strategyFactory.getStrategy(pageType);
         return strategy.analyzePage(page, pageWidth, pageHeight);
@@ -106,11 +119,16 @@ public class PdfLayoutAnalyzer {
     }
 
     public List<LayoutEntity> analyzePage(Page page) {
+        System.out.println("\n \n ============ Analyzing page..." + page.getName() + "===========");
         double pageWidth = page.getAttribute(Width.class).getValue().getMagnitude();
         double pageHeight = page.getAttribute(Height.class).getValue().getMagnitude();
 
         // 获取页面中的所有元素
         List<Element> allRaw = Lists.mutable.ofAll(page.getContainingElements(e -> true));
+
+        // 计算页面的最大右边界（所有文本元素的最大right值）
+        this.maxPageRightBoundary = calculateMaxRightBoundary(page, allRaw);
+        System.out.println("=== Max Right Boundary: " + maxPageRightBoundary + " (pageWidth=" + pageWidth + ") ===");
 
         // 1. Collect unique blocks
         List<LayoutEntity> entities = new ArrayList<>();
@@ -692,18 +710,6 @@ public class PdfLayoutAnalyzer {
         return current;
     }
 
-    /**
-     * 辅助方法：检查块是否包含URL或路径
-     */
-    private boolean containsUrlOrPath(LayoutEntity e) {
-        String text = getBlockText(e);
-        return text != null && (text.matches(".*https?://.*") ||
-                text.matches(".*www\\..*") ||
-                text.matches(".*\\.mil/.*") ||
-                text.matches(".*\\.[a-z]{3,4}/.*") ||
-                text.matches(".*\\.(com|org|gov|net|html?|php).*"));
-    }
-
     boolean shouldMerge(LayoutEntity a, LayoutEntity b) {
         if (a.isTable || b.isTable)
             return false;
@@ -778,6 +784,15 @@ public class PdfLayoutAnalyzer {
                 (aUrlNotProperlyEnded || aEndsWithDotAfterUrl || bIsUrlExtension || bStartsWithUrlProtocol) &&
                 (bIsUrlExtension || bStartsWithUrlProtocol);
 
+        // === 改进：URL续行检测强化 ===
+        // 如果 A 看起来像未完成的 URL（以 / 或 - 结尾），且 B 看起来像 URL 的一部分
+        boolean aEndsWithSlashOrHyphen = aTail.matches(".*[/-]$") && aContainsUrlPart;
+        // B 开始为大写字母时通常不是 URL 续行，除非它是明确的 URL 路径
+        boolean bStartsWithSentenceCap = bHeadTrimmed.matches("^[A-Z][a-z].*");
+        if (aEndsWithSlashOrHyphen && (bIsUrlExtension || bStartsWithPathSlash || !bStartsWithSentenceCap)) {
+            isUrlContinuation = true;
+        }
+
         // 如果 A 不包含 URL 但 B 是极其显著的 URL 扩展（如 .html），在间距很小时也认为是续行
         if (!isUrlContinuation && bIsUrlExtension && vGap < 10) {
             isUrlContinuation = true;
@@ -802,8 +817,7 @@ public class PdfLayoutAnalyzer {
         }
 
         // === 关键：跨栏合并早期阻止 ===
-        // 当预检测到双栏布局时，如果两个块明显位于不同的栏，直接阻止合并
-        // 这个检查必须在所有其他检查之前，以防止任何跨栏合并
+        // ... (keep existing column logic)
         if (preDetectedMultiColumn) {
             double columnBoundary = a.pageWidth * 0.5; // 列边界
             double leftColumnMax = a.pageWidth * 0.48; // 左栏最大中心点
@@ -915,11 +929,10 @@ public class PdfLayoutAnalyzer {
 
         // === 2.5 自然段落换行检测（优先于 Area 检查）===
         // 关键原则：自然续行应该合并，即使 Area 不同
-        // 例如：页面底部列表项的续行可能被分配到不同的 Area
         // earlyFirstA 和 earlyFirstB 已在上面定义
 
         // 计算上一行是否"填满"
-        boolean earlyALineIsFull = a.right > a.pageWidth * 0.80;
+        // boolean earlyALineIsFull = a.right > a.pageWidth * 0.80; // Removed as unused
         boolean earlyAIsRightAligned = a.right > a.pageWidth * 0.85 && a.left > a.pageWidth * 0.35;
         boolean earlySameIndent = Math.abs(a.left - b.left) <= 5;
         boolean earlyBIsLessIndented = b.left < a.left - 5;
@@ -939,16 +952,134 @@ public class PdfLayoutAnalyzer {
         }
         double estimatedFirstWordWidth = firstWordLength * earlyFontSize * 0.6;
 
-        // 页面右边距（假设标准右边距约 54-72pt）
-        double pageRightEdge = a.pageWidth - 54;
-        // 使用 lastLineRight（最后一行的右边界）来计算剩余空间
-        double remainingSpaceInA = pageRightEdge - a.lastLineRight;
+        // 计算有效右边界（Effective Right Edge）
+        // 取 A 和 B 中较宽的那个作为参考右边界
+        // 这样可以自适应处理缩进块（如 "(Copies of ...)"）
+        double effectiveRightEdge = Math.max(a.right, b.right);
 
-        // 如果上一行剩余空间 > 首单词宽度 + 一些余量，说明有空间但没放，是新段落
-        boolean hasSpaceButNotUsed = remainingSpaceInA > estimatedFirstWordWidth + 10;
+        // 关键修复：对于明显的缩进块，使用更精确的有效右边界
+        // 检查是否是缩进块（从页面中间偏右位置开始）
+        boolean aIsIndented = a.left > a.pageWidth * 0.3;
+        boolean bIsIndented = b.left > b.pageWidth * 0.3;
 
-        // System.out.printf(" earlyTightGap=%b, earlyVeryTightGap=%b, sameIndent=%b%n",
-        // earlyTightVerticalGap, earlyVeryTightGap, earlySameIndent);
+        // 检查是否是悬挂缩进格式（第一行靠左，后续行缩进）
+        // 通过比较 firstLineLeft 和 left 来判断
+        boolean aIsHangingIndent = aIsIndented && a.firstLineLeft < a.left - 10;
+        boolean bIsHangingIndent = bIsIndented && b.firstLineLeft < b.left - 10;
+
+        // 诊断：输出块的详细信息（简化版，只输出位置和文本）
+        if (vGap < 20) { // 只输出相邻的块对
+            String textA = getBlockText(a);
+            String textB = getBlockText(b);
+            String shortTextA = textA.length() > 80 ? textA.substring(0, 80) + "..." : textA;
+            String shortTextB = textB.length() > 80 ? textB.substring(0, 80) + "..." : textB;
+            
+            // System.out.printf("BLOCK PAIR: vGap=%.1f%n", vGap);
+            // System.out.printf("  A: L=%.1f R=%.1f T=%.1f B=%.1f W=%.1f H=%.1f | Text='%s'%n",
+            //         a.left, a.right, a.top, a.bottom, a.right - a.left, a.bottom - a.top, 
+            //         shortTextA.replace("\n", "↵").replace("\r", ""));
+            // System.out.printf("  B: L=%.1f R=%.1f T=%.1f B=%.1f W=%.1f H=%.1f | Text='%s'%n",
+            //         b.left, b.right, b.top, b.bottom, b.right - b.left, b.bottom - b.top, 
+            //         shortTextB.replace("\n", "↵").replace("\r", ""));
+        }
+
+        // 如果两个块都是从缩进位置开始（如多行缩进段落），
+        // 且它们的右边界都接近或超过最大右边界，
+        // 则使用实际的最大右边界作为参考，而不是 Math.max(a.right, b.right)
+        if (aIsIndented && bIsIndented) {
+            // 检查块的右边界是否已经接近最大右边界（相差<10pt）
+            boolean aReachesMaxEdge = Math.abs(a.right - this.maxPageRightBoundary) < 10;
+            boolean bReachesMaxEdge = Math.abs(b.right - this.maxPageRightBoundary) < 10;
+
+            if (aReachesMaxEdge || bReachesMaxEdge) {
+                // 使用最大右边界作为参考，因为块已经延伸到了文本区域的右边缘
+                effectiveRightEdge = this.maxPageRightBoundary;
+            }
+        }
+
+        // 如果两者都很短（小于页面宽度的 40%），强制扩展参考边界以避免过度合并列表项
+        // 但约束在最大右边界内
+        if (effectiveRightEdge < a.pageWidth * 0.4) {
+            effectiveRightEdge = Math.max(effectiveRightEdge, Math.min(a.pageWidth * 0.5, this.maxPageRightBoundary));
+        }
+
+        // 确保有效右边界不超过页面的最大右边界
+        effectiveRightEdge = Math.min(effectiveRightEdge, this.maxPageRightBoundary);
+
+        // 关键修复：对于悬挂缩进或多行段落，使用块的右边界而不是lastLineRight
+        // 因为 lastLineRight 只计算最后一行的右边界，而实际文本可能在前面几行就到达右边缘
+        double referenceRightForA;
+        if (aIsHangingIndent) {
+            // 悬挂缩进：使用整个块的右边界（因为第一行是"悬挂"的）
+            referenceRightForA = effectiveRightEdge;
+        } else if (aIsIndented) {
+            // 纯缩进块：检查块的右边界是否接近最大右边界
+            if (Math.abs(a.right - this.maxPageRightBoundary) < 20) {
+                // 块已经接近右边缘，使用块的右边界
+                referenceRightForA = effectiveRightEdge;
+            } else {
+                // 块没有到达右边缘，使用lastLineRight
+                referenceRightForA = a.lastLineRight;
+            }
+        } else {
+            // 标准块：使用lastLineRight
+            referenceRightForA = a.lastLineRight;
+        }
+
+        // 使用参考右边界来计算剩余空间
+        double remainingSpaceInA = effectiveRightEdge - referenceRightForA;
+
+        // 如果上一行剩余空间 > 首单词宽度 + 间距（20pt safety buffer），说明有空间但没放，是新段落
+        boolean hasSpaceButNotUsed = remainingSpaceInA > estimatedFirstWordWidth + 20;
+
+        // 关键修复：检查是否是不同缩进层级的块
+        // 如果 A 和 B 的左边界差异超过阈值（如 50pt），说明它们属于不同的段落/层级
+        // 即使 vGap 很小也不应该合并
+        // 例如：主段落 (left=108.0) + 缩进后续行 (left=216.1) = 差异108pt
+        double indentDifference = Math.abs(a.left - b.left);
+        boolean isDifferentIndentLevel = indentDifference > 50; // 50pt 以上认为是不同层级
+
+        // 特殊情况：如果是悬挂缩进格式（第一行左，后续行缩进），允许合并
+        // 但需要满足：A 是主段落，B 是缩进行，且 B 的 firstLineLeft == B.left
+        // 或者 B 的 right 明显小于 A 的 right（说明是后续短行）
+        boolean isHangingIndentPattern = !aIsIndented && bIsIndented 
+                && Math.abs(b.firstLineLeft - b.left) < 5  // B 的第一行就是缩进行
+                && b.right < a.right - 30; // B 明显比 A 短
+
+        // 关键修复：如果 A 和 B 都是缩进块（或都不是），且缩进差异在合理范围内（<120pt），
+        // 则允许合并。只有当"主段落（非缩进）vs"缩进段落"时才严格拒绝。
+        // 这避免了错误地阻止两个相同缩进位置的块（如都是从216.1开始）合并
+        boolean bothHaveSameIndentStatus = aIsIndented == bIsIndented;
+        boolean bothAreMainParagraphs = !aIsIndented && !bIsIndented;
+        boolean bothAreIndented = aIsIndented && bIsIndented;
+
+        // 拒绝条件：
+        // 1. 明显不同层级（差异 > 50pt）
+        // 2. 不是悬挂缩进模式
+        // 3. 且（都不是主段落 OR 不都是缩进块）
+        //    这意味着：一个主段落 vs 一个缩进块 = 拒绝
+        //    但：两个都是主段落 OR 两个都是缩进块 = 可能允许（如果差异合理）
+        boolean shouldRejectIndent = isDifferentIndentLevel && !isHangingIndentPattern;
+        
+        // 如果差异 > 100pt，总是拒绝（明显不同层级）
+        if (indentDifference > 100) {
+            shouldRejectIndent = true;
+        } 
+        // 如果差异在50-100pt之间，只有在"主段落 vs 缩进块"时才拒绝
+        else if (indentDifference > 50) {
+            if (bothHaveSameIndentStatus) {
+                // 都是缩进块或都不是缩进块，允许合并（可能是同一段落的不同行）
+                shouldRejectIndent = false;
+            } else {
+                // 一个主段落 vs 一个缩进块，拒绝
+                shouldRejectIndent = true;
+            }
+        }
+
+        if (shouldRejectIndent) {
+            // 不输出调试信息，保持日志简洁
+            return false;
+        }
 
         // 关键：区分段落内换行 vs 段落间分隔
         boolean earlyTightVerticalGap = vGap < earlyEstimatedLineHeight * 0.5;
@@ -957,37 +1088,34 @@ public class PdfLayoutAnalyzer {
 
         // 新段落检测：有空间但没用 且 缩进相同（不是悬挂缩进的续行）
         boolean likelyNewParagraph = hasSpaceButNotUsed && earlySameIndent;
-        // System.out.printf(" vGap=%.1f, tightGap=%b, sameIndent=%b,
-        // likelyNewPara=%b%n",
-        // vGap, earlyTightVerticalGap, earlySameIndent, likelyNewParagraph);
+
+        // 自然续行检测：只要行看起来是"填满"的（没有未使用的空间），就认为是续行
+        boolean isLineWrapped = !hasSpaceButNotUsed;
 
         // === CRITICAL: 如果检测到新段落（有空间但没使用），且不是非常紧密的行（vGap > 2），直接阻止合并 ===
         // 这是最重要的段落分隔规则
         if (likelyNewParagraph && vGap > 2) {
-            // 如果两个块垂直间距很小，输出简要拒合并原因
-            if (vGap < 10) {
-                System.out.printf("  REJECTED: New paragraph? (vGap=%.1f, remaining=%.1f pts, firstWordLen=%d)%n",
-                        vGap, remainingSpaceInA, firstWordLength);
-            }
             return false;
         }
 
-        // 自然续行条件（优先于 Area 检查）
-        // 必须：垂直间距紧密 且 不是段落分隔 且 不是语义上的新段落
-        if (earlyALineIsFull && !earlyAIsRightAligned && earlyTightVerticalGap && !isParagraphSeparation
+        if (isLineWrapped && !earlyAIsRightAligned && earlyTightVerticalGap && !isParagraphSeparation
                 && !likelyNewParagraph) {
             if (earlySameIndent || (earlyBIsLessIndented && !earlyLargeLeftShift)) {
+                // 不输出调试信息
                 return true; // 自然续行，即使 Area 不同也合并
             }
         }
         if (earlyVeryTightGap && earlyBIsLessIndented && !earlyLargeLeftShift && !isParagraphSeparation) {
+            // 不输出调试信息
             return true; // 非常紧密的续行（悬挂缩进的续行，不受新段落检测影响）
         }
 
         // 检查 Area 是否相同（对于非自然续行的块）
         // 关键修复：使用预检测结果来判断 Area，而不是硬编码 false
-        if (getReadingArea(a, preDetectedMultiColumn) != getReadingArea(b, preDetectedMultiColumn))
+        if (getReadingArea(a, preDetectedMultiColumn) != getReadingArea(b, preDetectedMultiColumn)) {
+            // 不输出调试信息
             return false;
+        }
 
         // === 3. SAME LINE: 水平片段合并 ===
         // 关键修复：检查水平间隙，避免跨栏合并
@@ -1136,14 +1264,23 @@ public class PdfLayoutAnalyzer {
         // 1. 通常表示新段落/子项，不应合并
         // 2. 但如果 A 是列表项开始（如 (a), (b)）且 B 不是新列表项，
         // 则 B 是 A 的悬挂缩进续行，应该合并
+        // b 比 a 缩进更多的情况：
+        // 1. 通常表示新段落/子项，不应合并
+        // 2. 但如果 A 是列表项开始（如 (a), (b)）且 B 不是新列表项，
+        // 则 B 是 A 的悬挂缩进续行，应该合并
         if (bIsMoreIndented) {
             boolean aIsListItem = startsWithBullet(a);
             boolean bIsNewListItem = startsWithBullet(b);
 
-            // 列表项续行条件：A是列表项，B不是新列表项，且缩进差不超过50pt（典型悬挂缩进）
-            boolean isListItemContinuation = aIsListItem && !bIsNewListItem && (b.left - a.left) < 50;
+            // Check if A is a Technical Document ID (e.g. "NASA-HDBK-6003") which acts like
+            // a list item header
+            boolean aIsTechnicalDocID = isTechnicalDocID(textA);
 
-            if (isListItemContinuation && vGap < 8) {
+            // 列表项续行条件：A是列表项或文档ID，B不是新列表项，且缩进差不超过50pt（典型悬挂缩进）
+            boolean isListItemContinuation = (aIsListItem || aIsTechnicalDocID) && !bIsNewListItem
+                    && (b.left - a.left) < 150;
+
+            if (isListItemContinuation && vGap < 12) { // Relaxed vGap for titles
                 // 列表项续行：直接合并（悬挂缩进格式）
                 return true;
             }
@@ -1459,6 +1596,15 @@ public class PdfLayoutAnalyzer {
         return false;
     }
 
+    private boolean isTechnicalDocID(String text) {
+        if (text == null || text.length() < 5)
+            return false;
+        // Matches typical document IDs: NASA-*, MIL-*, DoD *, ANSI/..., ISO ...
+        return text.matches("^(?i)(NASA|MIL|DoD|ANSI|ISO|ASTM|IEEE|SAE)[-\\s].*") ||
+                text.matches("^[A-Z]{2,}-\\w+-\\d+.*") || // General pattern like AB-CDE-123
+                text.matches("^\\d+\\.\\d+\\s+.*"); // Section numbers like 2.3
+    }
+
     private boolean isDefinitionEntry(String text) {
         if (text == null || text.length() < 5)
             return false;
@@ -1554,6 +1700,34 @@ public class PdfLayoutAnalyzer {
         return target.left >= bullet.right - 15 && target.left < bullet.right + 50;
     }
 
+    /**
+     * 计算页面中所有文本元素的最大右边界
+     * 用于约束合并判断（"有空间但没放"）和翻译输出
+     */
+    private double calculateMaxRightBoundary(Page page, List<Element> allElements) {
+        double maxRight = 0;
+
+        // 从所有元素中获取最大右边界
+        for (Element element : allElements) {
+            if (element.hasAttribute(Left.class) && element.hasAttribute(Width.class)) {
+                double left = element.getAttribute(Left.class).getMagnitude();
+                double width = element.getAttribute(Width.class).getMagnitude();
+                double right = left + width;
+                if (right > maxRight) {
+                    maxRight = right;
+                }
+            }
+        }
+
+        // 如果没有找到元素，返回页面宽度的92%作为默认值
+        if (maxRight == 0) {
+            double pageWidth = page.getAttribute(Width.class).getValue().getMagnitude();
+            maxRight = pageWidth * 0.92;
+        }
+
+        return maxRight;
+    }
+
     private LayoutEntity merge(LayoutEntity a, LayoutEntity b) {
         MutableList<Element> allElems = Lists.mutable.ofAll(((ElementGroup<Element>) a.group).getElements());
         allElems.addAllIterable(((ElementGroup<Element>) b.group).getElements());
@@ -1567,6 +1741,25 @@ public class PdfLayoutAnalyzer {
             return Double.compare(t1, t2);
         });
 
-        return new LayoutEntity(new ElementGroup<>(allElems), a.pageWidth, a.pageHeight);
+        // 创建合并后的LayoutEntity
+        LayoutEntity merged = new LayoutEntity(new ElementGroup<>(allElems), a.pageWidth, a.pageHeight);
+
+        // 关键修复：正确设置lastLineRight为两个原始块的lastLineRight的最大值
+        // 因为LayoutEntity的构造函数会重新计算lastLineRight，只取最后一行，
+        // 但对于合并的块（如长段落后面跟短段落），最后一行可能是短段落，
+        // 而实际文本的最大右边界应该来自长段落的第一行
+        // 例如：长段落 A (right=523.7) + 短段落 B (right=167.6)
+        // 合并后 lastLineRight = 523.7 (来自A) 或 167.6 (来自B)，
+        // 但构造函数可能选择B，导致错误判断
+        double maxLastLineRight = Math.max(a.lastLineRight, b.lastLineRight);
+
+        // 检查是否需要修正：如果构造函数计算的lastLineRight明显小于maxLastLineRight
+        // 且块的右边界接近或大于maxLastLineRight，说明构造函数选择了错误的行
+        if (merged.lastLineRight < maxLastLineRight - 10 && merged.right >= maxLastLineRight - 10) {
+            // 手动修正lastLineRight为最大值
+            merged.lastLineRight = maxLastLineRight;
+        }
+
+        return merged;
     }
 }

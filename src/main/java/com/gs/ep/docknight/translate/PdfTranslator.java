@@ -57,6 +57,7 @@ public class PdfTranslator {
     private static final Pattern LEVEL_2_PATTERN = Pattern.compile("(?s)^[\\(（][a-zA-Z0-9]+[\\)）]\\s*.*");
     private static final Pattern LABEL_PATTERN = Pattern.compile("(?s)^[A-Z][a-zA-Z]*:\\s+.*");
     private static final Pattern TOC_DOTS_PATTERN = Pattern.compile(".*\\.{4,}.*");
+    private static final Pattern DOC_ID_PATTERN = Pattern.compile("(?s)^[A-Z0-9]+[-][A-Z0-9]+.*");
 
     private static final Set<String> TRANSLATABLE_UPPERCASE_WORDS = new HashSet<>(java.util.Arrays.asList(
             "NOTE", "DATE", "TIME", "PAGE", "PART", "ITEM", "TYPE", "SIZE", "UNIT", "CODE", "NAME",
@@ -131,6 +132,18 @@ public class PdfTranslator {
         return context.toString();
     }
 
+    private String cleanupText(String text) {
+        if (text == null)
+            return "";
+        // Fix split URLs (e.g. "http://.../ index.html" -> "http://.../index.html")
+        // Also handle "http://.../ \nindex.html"
+        // Pattern: Slash, followed by whitespace, followed by a filename-like pattern
+        // (start with alphanumeric, contains dot)
+        // Also remove spaces within the URL path if they seem to be split by mistake
+        // (e.g. "pdi/ uid/" -> "pdi/uid/")
+        return text.replaceAll("(?i)(https?://[^\\s]+?)/\\s+([\\w\\-\\.]+\\.[a-z]{2,5})", "$1/$2");
+    }
+
     private void translatePage(Page page, String targetLanguage) throws Exception {
         // 1. Analyze Layout
         List<LayoutEntity> consolidated = layoutAnalyzer.analyzePage(page);
@@ -139,6 +152,11 @@ public class PdfTranslator {
         double pageWidth = page.getAttribute(Width.class).getValue().getMagnitude();
         double pageHeight = page.getAttribute(Height.class).getValue().getMagnitude();
         boolean multiColumn = layoutAnalyzer.detectMultiColumn(consolidated, pageWidth, pageHeight);
+
+        // 计算页面中所有文本元素的最大右边界
+        // 确保翻译输出不超过这个边界，避免超出原始文本区域
+        double maxRightBoundary = calculateMaxRightBoundary(page, consolidated);
+        System.out.println("=== Max Right Boundary: " + maxRightBoundary + " (pageWidth=" + pageWidth + ") ===");
 
         // Detect figure regions (large gaps between text content) and get their
         // boundaries
@@ -153,13 +171,13 @@ public class PdfTranslator {
             String safeText = (fullText.length() > 50) ? fullText.substring(0, 50) + "..." : fullText;
             safeText = safeText.replace("\n", "↵");
             int area = layoutAnalyzer.getReadingArea(e, multiColumn);
-            System.out.printf("[%d] L=%.1f R=%.1f T=%.1f B=%.1f H=%.1f Area=%d Table=%b Text='%s'%n",
-                    i, e.left, e.right, e.top, e.bottom, e.bottom - e.top, area, e.isTable, safeText);
+            // System.out.printf("[%d] L=%.1f R=%.1f T=%.1f B=%.1f H=%.1f Area=%d Table=%b Text='%s'%n",
+            //         i, e.left, e.right, e.top, e.bottom, e.bottom - e.top, area, e.isTable, safeText);
         }
         System.out.println("=== End Page Analysis ===");
 
         // 额外诊断：输出相邻块的垂直间距，用于调试URL合并问题
-        System.out.println("=== Adjacent Block Gaps ===");
+        // System.out.println("=== Adjacent Block Gaps ===");
         for (int i = 0; i < consolidated.size() - 1; i++) {
             LayoutEntity curr = consolidated.get(i);
             LayoutEntity next = consolidated.get(i + 1);
@@ -171,8 +189,8 @@ public class PdfTranslator {
                 String shortNext = nextText.length() > 30 ? nextText.substring(0, 30) + "..." : nextText;
                 shortCurr = shortCurr.replace("\n", "↵");
                 shortNext = shortNext.replace("\n", "↵");
-                System.out.printf("[%d->%d] gap=%.1f curr='%s' next='%s'%n",
-                        i, i + 1, gap, shortCurr, shortNext);
+                // System.out.printf("[%d->%d] gap=%.1f curr='%s' next='%s'%n",
+                //         i, i + 1, gap, shortCurr, shortNext);
             }
         }
         System.out.println("=== End Gaps ===");
@@ -188,7 +206,7 @@ public class PdfTranslator {
 
         List<String> paraTexts = new ArrayList<>();
         for (LayoutEntity e : paragraphEntities) {
-            paraTexts.add(layoutAnalyzer.getBlockText(e));
+            paraTexts.add(cleanupText(layoutAnalyzer.getBlockText(e)));
         }
 
         // List<String> paraTranslations = paraTexts.isEmpty() ? new ArrayList<>()
@@ -218,7 +236,7 @@ public class PdfTranslator {
                     }
                 }
                 applyParagraphTranslation(entity, paraTranslations.get(paraIdx++), pageWidth, pageHeight, multiColumn,
-                        figureRegions, nextBlockTop);
+                        figureRegions, nextBlockTop, maxRightBoundary);
             }
         }
 
@@ -250,8 +268,44 @@ public class PdfTranslator {
         return styles != null && styles.contains(TextStyles.BOLD);
     }
 
+    /**
+     * 计算页面中所有文本元素的最大右边界
+     * 确保翻译输出不超过这个边界，避免超出原始文本区域
+     */
+    private double calculateMaxRightBoundary(Page page, List<LayoutEntity> consolidated) {
+        double maxRight = 0;
+
+        // 1. 从 consolidated 列表中获取最大右边界
+        for (LayoutEntity entity : consolidated) {
+            if (entity.right > maxRight) {
+                maxRight = entity.right;
+            }
+        }
+
+        // 2. 也考虑页面中的原始元素（确保覆盖所有情况）
+        if (page.hasAttribute(PositionalContent.class)) {
+            PositionalElementList<Element> positionalContent = page.getPositionalContent().getValue();
+            if (positionalContent != null) {
+                for (Element element : positionalContent.getElements()) {
+                    if (element.hasAttribute(com.gs.ep.docknight.model.attribute.Left.class) &&
+                        element.hasAttribute(com.gs.ep.docknight.model.attribute.Width.class)) {
+                        double left = element.getAttribute(com.gs.ep.docknight.model.attribute.Left.class).getMagnitude();
+                        double width = element.getAttribute(com.gs.ep.docknight.model.attribute.Width.class).getMagnitude();
+                        double right = left + width;
+                        if (right > maxRight) {
+                            maxRight = right;
+                        }
+                    }
+                }
+            }
+        }
+
+        return maxRight;
+    }
+
     private void applyParagraphTranslation(LayoutEntity entity, String translatedText, double pageWidth,
-            double pageHeight, boolean multiColumn, List<double[]> figureRegions, double nextBlockTop)
+            double pageHeight, boolean multiColumn, List<double[]> figureRegions, double nextBlockTop,
+            double maxRightBoundary)
             throws Exception {
         ElementGroup<Element> group = (ElementGroup<Element>) entity.group;
         if (translatedText.trim().isEmpty())
@@ -321,6 +375,12 @@ public class PdfTranslator {
 
         boolean isCentered = !isTOCLine && !isListItem && originalWidth > pageWidth * 0.15
                 && isSymmetricallyCentered;
+
+        // Prevent standard document IDs and "Department of Defense" titles from being
+        // treated as centered
+        if (isCentered && (DOC_ID_PATTERN.matcher(trimmedTranslatedText).matches())) {
+            isCentered = false;
+        }
 
         // 只有明确的 SECTION 标题才强制居中，不要基于全大写检测
         // 只有明确的 SECTION 标题才强制居中，不要基于全大写检测
@@ -441,9 +501,9 @@ public class PdfTranslator {
                 // 3. 计算新的左右边界 (Symmetrical around center)
                 double halfWidth = Math.max(originalWidth, neededWidth) / 2.0;
 
-                // 约束在页面边距内
+                // 约束在页面边距内和最大右边界内
                 double newLeft = Math.max(60.0, blockCenter - halfWidth);
-                double newRight = Math.min(pageWidth - 60.0, blockCenter + halfWidth);
+                double newRight = Math.min(Math.min(pageWidth - 60.0, maxRightBoundary), blockCenter + halfWidth);
 
                 // 重新调整宽度以保持数学居中 (取两边较小的可用宽度)
                 double availableHalfWidth = Math.min(blockCenter - newLeft, newRight - blockCenter);
@@ -472,10 +532,13 @@ public class PdfTranslator {
                 double neededWidth = translatedText.length() * estimatedFontSize * 0.8 + 10;
                 if (neededWidth > originalWidth) {
                     // 需要更多宽度，适度扩展但不要太过
-                    right = Math.min(left + neededWidth, pageWidth * 0.92);
+                    // 约束在最大右边界内
+                    double maxAllowedRight = Math.min(pageWidth * 0.92, maxRightBoundary);
+                    right = Math.min(left + neededWidth, maxAllowedRight);
                 }
             } else if (multiColumn) {
                 // 对于多栏布局，保持原始列边界，不要强制合并到两栏
+                // 约束所有右边界不超过 maxRightBoundary
                 if (area == 0) {
                     if (left > 55)
                         left = Math.max(60.0, left);
@@ -483,7 +546,7 @@ public class PdfTranslator {
                     if (right < pageWidth * 0.6) {
                         right = Math.min(right + 20, pageWidth * 0.48);
                     } else {
-                        right = pageWidth * 0.92;
+                        right = Math.min(pageWidth * 0.92, maxRightBoundary);
                     }
                 } else if (area == 1) {
                     // 可能是中栏或右栏
@@ -491,26 +554,27 @@ public class PdfTranslator {
                     if (right > pageWidth * 0.7) {
                         // 看起来是右栏
                         left = Math.max(pageWidth * 0.52, left);
-                        right = pageWidth * 0.92;
+                        right = Math.min(pageWidth * 0.92, maxRightBoundary);
                     } else {
                         // 可能是中栏，保持宽度
-                        right = Math.min(right + 20, pageWidth * 0.65);
+                        right = Math.min(right + 20, Math.min(pageWidth * 0.65, maxRightBoundary));
                     }
                 } else if (area == 2) {
                     // 右栏 (3 栏情况)
                     left = Math.max(pageWidth * 0.68, left);
-                    right = pageWidth * 0.92;
+                    right = Math.min(pageWidth * 0.92, maxRightBoundary);
                 } else {
-                    right = pageWidth * 0.92;
+                    right = Math.min(pageWidth * 0.92, maxRightBoundary);
                 }
             } else {
                 // Single-column: preserve wide bounds
+                // 约束右边界不超过 maxRightBoundary
                 if (area == 1) {
                     left = Math.max(pageWidth * 0.52, left);
                 } else if (left > 55) {
                     left = Math.max(60.0, left);
                 }
-                right = pageWidth * 0.92;
+                right = Math.min(pageWidth * 0.92, maxRightBoundary);
             }
         }
 
@@ -589,7 +653,8 @@ public class PdfTranslator {
         // 检测紧凑单行项：原始高度小于等于 lineHeight，且翻译后文本较短
         // 这类项目（如 E1. 参考文献, E2. 定义, 附件 - 9）不应大幅增加高度
         // 不仅限于列表项，任何原始高度很小的短文本都应该保守处理
-        boolean isCompactItem = originalHeight <= lineHeight * 1.2
+        // Relaxed condition: 1.5 * linewidth to catch items like "UNDER SECRETARY..."
+        boolean isCompactItem = originalHeight <= lineHeight * 1.5
                 && translatedText.length() < 30;
 
         // 诊断：记录高度计算关键参数
@@ -637,7 +702,8 @@ public class PdfTranslator {
                 height = Math.max(15, listItemHeight);
             } else {
                 // 普通段落：取原始高度+填充和估算高度的较大值
-                height = Math.max(Math.max(15, originalHeight + 25), estimatedHeight);
+                // Reduced padding from +25 to +10 to prevent large gaps
+                height = Math.max(Math.max(15, originalHeight + 10), estimatedHeight);
             }
             // 诊断：输出估算行数和高度
             System.out.printf("         estLines=%d estH=%.1f finalH=%.1f%n", estimatedLines, estimatedHeight, height);
